@@ -35,7 +35,7 @@ class BaseAgent(ABC):
         return context
     
     @abstractmethod
-    async def process(self, context: GameContext) -> GameContext:
+    async def process(self, context: GameContext, session_id: str = None) -> GameContext:
         """处理逻辑，子类必须实现"""
         pass
     

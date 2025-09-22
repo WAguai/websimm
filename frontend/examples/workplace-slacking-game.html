@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>职场摸鱼游戏</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+        }
+
+        #gameContainer {
+            position: relative;
+            width: 800px;
+            height: 600px;
+            background: #f0f0f0;
+            border: 3px solid #333;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.3);
+        }
+
+        #office {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(to bottom, #e8e8e8 0%, #f5f5f5 100%);
+            background-image:
+                radial-gradient(circle at 200px 200px, rgba(100,100,100,0.1) 20px, transparent 21px),
+                radial-gradient(circle at 600px 400px, rgba(100,100,100,0.1) 20px, transparent 21px),
+                linear-gradient(90deg, #ddd 1px, transparent 1px),
+                linear-gradient(180deg, #ddd 1px, transparent 1px);
+            background-size: 400px 400px, 400px 400px, 50px 50px, 50px 50px;
+        }
+
+        .desk {
+            position: absolute;
+            width: 120px;
+            height: 80px;
+            background: #8B4513;
+            border: 2px solid #654321;
+            border-radius: 5px;
+        }
+
+        .computer {
+            position: absolute;
+            width: 30px;
+            height: 20px;
+            background: #333;
+            top: 5px;
+            left: 45px;
+            border-radius: 2px;
+        }
+
+        .computer::after {
+            content: '';
+            position: absolute;
+            width: 25px;
+            height: 15px;
+            background: #000;
+            top: 2px;
+            left: 2px;
+            border-radius: 1px;
+        }
+
+        #player {
+            position: absolute;
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #4CAF50, #45a049);
+            border-radius: 50%;
+            transition: all 0.1s ease;
+            z-index: 10;
+            border: 2px solid #2e7d32;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        #player::before {
+            content: '🧑‍💼';
+            font-size: 24px;
+            filter: drop-shadow(1px 1px 1px rgba(0,0,0,0.3));
+        }
+
+        #boss {
+            position: absolute;
+            width: 50px;
+            height: 50px;
+            background: linear-gradient(135deg, #f44336, #d32f2f);
+            border-radius: 50%;
+            z-index: 5;
+            border: 2px solid #b71c1c;
+            transition: all 0.3s ease;
+            box-shadow: 0 3px 10px rgba(244,67,54,0.4), inset 0 1px 0 rgba(255,255,255,0.2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: bossGlow 2s ease-in-out infinite alternate;
+        }
+
+        #boss::before {
+            content: '👨‍💼';
+            font-size: 28px;
+            filter: drop-shadow(1px 1px 2px rgba(0,0,0,0.5));
+        }
+
+        @keyframes bossGlow {
+            from { box-shadow: 0 3px 10px rgba(244,67,54,0.4), inset 0 1px 0 rgba(255,255,255,0.2); }
+            to { box-shadow: 0 3px 15px rgba(244,67,54,0.6), inset 0 1px 0 rgba(255,255,255,0.3); }
+        }
+
+        #bossVision {
+            position: absolute;
+            background: rgba(255, 0, 0, 0.2);
+            border-radius: 50%;
+            z-index: 1;
+            transition: all 0.3s ease;
+        }
+
+        .coffee-machine {
+            position: absolute;
+            width: 60px;
+            height: 80px;
+            background: #654321;
+            border-radius: 10px;
+            top: 50px;
+            right: 50px;
+            border: 2px solid #543021;
+        }
+
+        .coffee-machine::before {
+            content: '☕';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 30px;
+        }
+
+        #gameInfo {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #333;
+            font-size: 18px;
+            font-weight: bold;
+            z-index: 20;
+            background: rgba(255,255,255,0.8);
+            padding: 10px;
+            border-radius: 5px;
+        }
+
+        #gameOver {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            font-size: 24px;
+            z-index: 100;
+            display: none;
+        }
+
+        #instructions {
+            position: absolute;
+            bottom: 10px;
+            left: 10px;
+            color: #333;
+            font-size: 14px;
+            background: rgba(255,255,255,0.8);
+            padding: 10px;
+            border-radius: 5px;
+            z-index: 20;
+        }
+
+        .caught {
+            animation: shake 0.5s ease-in-out;
+        }
+
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-5px); }
+            75% { transform: translateX(5px); }
+        }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <div id="office">
+            <!-- 办公桌 -->
+            <div class="desk" style="top: 100px; left: 100px;">
+                <div class="computer"></div>
+            </div>
+            <div class="desk" style="top: 100px; left: 300px;">
+                <div class="computer"></div>
+            </div>
+            <div class="desk" style="top: 100px; left: 500px;">
+                <div class="computer"></div>
+            </div>
+            <div class="desk" style="top: 250px; left: 100px;">
+                <div class="computer"></div>
+            </div>
+            <div class="desk" style="top: 250px; left: 300px;">
+                <div class="computer"></div>
+            </div>
+            <div class="desk" style="top: 250px; left: 500px;">
+                <div class="computer"></div>
+            </div>
+            <div class="desk" style="top: 400px; left: 100px;">
+                <div class="computer"></div>
+            </div>
+            <div class="desk" style="top: 400px; left: 300px;">
+                <div class="computer"></div>
+            </div>
+            <div class="desk" style="top: 400px; left: 500px;">
+                <div class="computer"></div>
+            </div>
+
+            <!-- 咖啡机 -->
+            <div class="coffee-machine"></div>
+
+            <!-- 玩家 -->
+            <div id="player"></div>
+
+            <!-- 老板 -->
+            <div id="boss"></div>
+            <div id="bossVision"></div>
+        </div>
+
+        <div id="gameInfo">
+            <div>摸鱼时间: <span id="timeScore">0</span>秒</div>
+            <div>状态: <span id="status">安全摸鱼中...</span></div>
+        </div>
+
+        <div id="instructions">
+            使用 WASD 或方向键移动<br>
+            避开老板的视线，坚持摸鱼！
+        </div>
+
+        <div id="gameOver">
+            <div>游戏结束！</div>
+            <div>被老板抓到了！</div>
+            <div>摸鱼时间: <span id="finalScore">0</span>秒</div>
+            <button onclick="restartGame()" style="margin-top: 20px; padding: 10px 20px; font-size: 16px; cursor: pointer; background: #4CAF50; color: white; border: none; border-radius: 5px;">重新开始</button>
+        </div>
+    </div>
+
+    <script>
+        const gameContainer = document.getElementById('gameContainer');
+        const player = document.getElementById('player');
+        const boss = document.getElementById('boss');
+        const bossVision = document.getElementById('bossVision');
+        const timeScore = document.getElementById('timeScore');
+        const status = document.getElementById('status');
+        const gameOverDiv = document.getElementById('gameOver');
+        const finalScore = document.getElementById('finalScore');
+
+        let gameState = {
+            isGameOver: false,
+            startTime: Date.now(),
+            player: { x: 400, y: 300, speed: 3 },
+            boss: { x: 50, y: 50, speed: 1.5, direction: 0, visionRange: 120 },
+            keys: {}
+        };
+
+        const desks = [
+            { x: 100, y: 100, width: 120, height: 80 },
+            { x: 300, y: 100, width: 120, height: 80 },
+            { x: 500, y: 100, width: 120, height: 80 },
+            { x: 100, y: 250, width: 120, height: 80 },
+            { x: 300, y: 250, width: 120, height: 80 },
+            { x: 500, y: 250, width: 120, height: 80 },
+            { x: 100, y: 400, width: 120, height: 80 },
+            { x: 300, y: 400, width: 120, height: 80 },
+            { x: 500, y: 400, width: 120, height: 80 }
+        ];
+
+        function checkCollision(rect1, rect2) {
+            return rect1.x < rect2.x + rect2.width &&
+                   rect1.x + rect1.width > rect2.x &&
+                   rect1.y < rect2.y + rect2.height &&
+                   rect1.y + rect1.height > rect2.y;
+        }
+
+        function isValidPosition(x, y, width = 40, height = 40) {
+            if (x < 0 || y < 0 || x + width > 800 || y + height > 600) {
+                return false;
+            }
+
+            const playerRect = { x, y, width, height };
+            for (let desk of desks) {
+                if (checkCollision(playerRect, desk)) {
+                    return false;
+                }
+            }
+
+            const coffeeMachine = { x: 740, y: 50, width: 60, height: 80 };
+            if (checkCollision(playerRect, coffeeMachine)) {
+                return false;
+            }
+
+            return true;
+        }
+
+        function movePlayer() {
+            if (gameState.isGameOver) return;
+
+            let newX = gameState.player.x;
+            let newY = gameState.player.y;
+
+            const keys = gameState.keys;
+            if (keys['ArrowLeft'] || keys['a'] || keys['A']) {
+                newX -= gameState.player.speed;
+            }
+            if (keys['ArrowRight'] || keys['d'] || keys['D']) {
+                newX += gameState.player.speed;
+            }
+            if (keys['ArrowUp'] || keys['w'] || keys['W']) {
+                newY -= gameState.player.speed;
+            }
+            if (keys['ArrowDown'] || keys['s'] || keys['S']) {
+                newY += gameState.player.speed;
+            }
+
+            if (isValidPosition(newX, newY)) {
+                gameState.player.x = newX;
+                gameState.player.y = newY;
+            }
+
+            player.style.left = gameState.player.x + 'px';
+            player.style.top = gameState.player.y + 'px';
+        }
+
+        function moveBoss() {
+            if (gameState.isGameOver) return;
+
+            let newX = gameState.boss.x;
+            let newY = gameState.boss.y;
+
+            if (Math.random() < 0.02) {
+                gameState.boss.direction = Math.random() * 2 * Math.PI;
+            }
+
+            newX += Math.cos(gameState.boss.direction) * gameState.boss.speed;
+            newY += Math.sin(gameState.boss.direction) * gameState.boss.speed;
+
+            if (!isValidPosition(newX, newY, 50, 50)) {
+                gameState.boss.direction += Math.PI;
+                newX = gameState.boss.x + Math.cos(gameState.boss.direction) * gameState.boss.speed;
+                newY = gameState.boss.y + Math.sin(gameState.boss.direction) * gameState.boss.speed;
+
+                if (!isValidPosition(newX, newY, 50, 50)) {
+                    gameState.boss.direction = Math.random() * 2 * Math.PI;
+                    return;
+                }
+            }
+
+            gameState.boss.x = newX;
+            gameState.boss.y = newY;
+
+            boss.style.left = gameState.boss.x + 'px';
+            boss.style.top = gameState.boss.y + 'px';
+
+            updateBossVision();
+        }
+
+        function updateBossVision() {
+            const visionRange = gameState.boss.visionRange;
+            bossVision.style.width = visionRange * 2 + 'px';
+            bossVision.style.height = visionRange * 2 + 'px';
+            bossVision.style.left = (gameState.boss.x + 25 - visionRange) + 'px';
+            bossVision.style.top = (gameState.boss.y + 25 - visionRange) + 'px';
+        }
+
+        function checkCaught() {
+            const bossCenter = {
+                x: gameState.boss.x + 25,
+                y: gameState.boss.y + 25
+            };
+            const playerCenter = {
+                x: gameState.player.x + 20,
+                y: gameState.player.y + 20
+            };
+
+            const distance = Math.sqrt(
+                Math.pow(bossCenter.x - playerCenter.x, 2) +
+                Math.pow(bossCenter.y - playerCenter.y, 2)
+            );
+
+            if (distance < gameState.boss.visionRange) {
+                gameState.isGameOver = true;
+                gameContainer.classList.add('caught');
+                status.textContent = '被抓到了！';
+                status.style.color = 'red';
+
+                setTimeout(() => {
+                    gameOverDiv.style.display = 'block';
+                    finalScore.textContent = Math.floor((Date.now() - gameState.startTime) / 1000);
+                }, 500);
+            }
+        }
+
+        function updateScore() {
+            if (!gameState.isGameOver) {
+                const currentTime = Math.floor((Date.now() - gameState.startTime) / 1000);
+                timeScore.textContent = currentTime;
+
+                if (currentTime > 0 && currentTime % 10 === 0 && Math.random() < 0.3) {
+                    gameState.boss.speed += 0.1;
+                    gameState.boss.visionRange += 5;
+                }
+            }
+        }
+
+        function gameLoop() {
+            movePlayer();
+            moveBoss();
+            checkCaught();
+            updateScore();
+
+            if (!gameState.isGameOver) {
+                requestAnimationFrame(gameLoop);
+            }
+        }
+
+        function restartGame() {
+            gameState = {
+                isGameOver: false,
+                startTime: Date.now(),
+                player: { x: 400, y: 300, speed: 3 },
+                boss: { x: 50, y: 50, speed: 1.5, direction: 0, visionRange: 120 },
+                keys: {}
+            };
+
+            gameContainer.classList.remove('caught');
+            gameOverDiv.style.display = 'none';
+            status.textContent = '安全摸鱼中...';
+            status.style.color = 'black';
+            timeScore.textContent = '0';
+
+            player.style.left = gameState.player.x + 'px';
+            player.style.top = gameState.player.y + 'px';
+            boss.style.left = gameState.boss.x + 'px';
+            boss.style.top = gameState.boss.y + 'px';
+
+            updateBossVision();
+            gameLoop();
+        }
+
+        document.addEventListener('keydown', (e) => {
+            gameState.keys[e.key.toLowerCase()] = true;
+            gameState.keys[e.key] = true;
+            gameState.keys[e.code] = true;
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) ||
+                ['w', 'a', 's', 'd'].includes(e.key.toLowerCase())) {
+                e.preventDefault();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            gameState.keys[e.key.toLowerCase()] = false;
+            gameState.keys[e.key] = false;
+            gameState.keys[e.code] = false;
+            if (['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'KeyW', 'KeyA', 'KeyS', 'KeyD'].includes(e.code) ||
+                ['w', 'a', 's', 'd'].includes(e.key.toLowerCase())) {
+                e.preventDefault();
+            }
+        });
+
+        // Ensure the game container can receive focus
+        gameContainer.tabIndex = 0;
+        gameContainer.focus();
+
+        restartGame();
+    </script>
+</body>
+</html>

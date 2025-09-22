@@ -1,14 +1,15 @@
 'use client'
 
 import { useState, KeyboardEvent } from 'react'
-import { Send, Loader2 } from 'lucide-react'
+import { Send, Loader2, MessageSquare } from 'lucide-react'
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void
   isGenerating: boolean
+  onOpenConversations: () => void
 }
 
-export default function ChatInput({ onSendMessage, isGenerating }: ChatInputProps) {
+export default function ChatInput({ onSendMessage, isGenerating, onOpenConversations }: ChatInputProps) {
   const [input, setInput] = useState('')
 
   const handleSend = () => {
@@ -60,11 +61,18 @@ export default function ChatInput({ onSendMessage, isGenerating }: ChatInputProp
       {/* 输入区域 */}
       <div className="p-4">
         <div className="flex space-x-3">
+          <button
+            onClick={onOpenConversations}
+            className="self-end px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors flex items-center justify-center"
+            title="对话历史"
+          >
+            <MessageSquare size={16} />
+          </button>
           <textarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
-            placeholder="What would you like to change?"
+            placeholder="描述你想要的游戏..."
             className="flex-1 resize-none bg-transparent border-none text-gray-300 placeholder-gray-500 focus:outline-none text-sm"
             rows={2}
             disabled={isGenerating}

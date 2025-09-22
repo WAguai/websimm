@@ -30,7 +30,9 @@ class AudioResourceResult(BaseModel):
 
 class GameGenerationResult(BaseModel):
     files: GameFiles
+    title: str
     description: str
+    game_type: str
     game_logic: str
     image_resources: List[str]
     audio_resources: List[str]

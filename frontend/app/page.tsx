@@ -6,78 +6,30 @@ import ChatHistory from './components/ChatHistory'
 import ChatInput from './components/ChatInput'
 import BackendHealthCheck from './components/BackendHealthCheck'
 import ResizablePanels from './components/ResizablePanels'
-import { GameAgents } from './lib/gameAgents'
-import { Message, GameVersion } from './types'
+import ConversationModal from './components/ConversationModal'
+import { ConversationApi } from './lib/conversationApi'
+import { Message, GameVersion, ConversationSummary, BackendMessage, NewGameResponse, HistoryBasedGameResponse } from './types'
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([])
   const [gameVersions, setGameVersions] = useState<GameVersion[]>([])
   const [currentGameIndex, setCurrentGameIndex] = useState<number>(-1)
   const [isGenerating, setIsGenerating] = useState(false)
-  const gameAgents = useRef(new GameAgents())
+  const [currentConversationId, setCurrentConversationId] = useState<string>('')
+  const [currentParentMessageId, setCurrentParentMessageId] = useState<string>('')
+  const [showConversationModal, setShowConversationModal] = useState(false)
+  const requestInProgress = useRef(false)  // 防止重复请求
 
-  // // 初始化一些示例对话和游戏版本
-  // useEffect(() => {
-  //   const initializeExamples = async () => {
-  //     const exampleConversations = [
-  //       {
-  //         userPrompt: '生成一个跳跃平台游戏',
-  //         aiResponse: '已为你生成了一个跳跃平台游戏！使用方向键控制角色移动和跳跃。'
-  //       },
-  //       {
-  //         userPrompt: '创建一个贪吃蛇游戏',
-  //         aiResponse: '贪吃蛇游戏已生成！使用方向键控制蛇的移动方向，吃到食物会增长。'
-  //       },
-  //       {
-  //         userPrompt: '制作一个收集游戏',
-  //         aiResponse: '收集游戏已完成！控制绿色方块移动，收集红色目标来获得分数。'
-  //       }
-  //     ]
-
-  //     const initialMessages: Message[] = []
-  //     const initialGameVersions: GameVersion[] = []
-
-  //     for (let i = 0; i < exampleConversations.length; i++) {
-  //       const conversation = exampleConversations[i]
-  //       const baseTime = new Date(Date.now() - (exampleConversations.length - i) * 300000) // 5分钟间隔
-
-  //       const userMessage: Message = {
-  //         id: `user-${i}`,
-  //         role: 'user',
-  //         content: conversation.userPrompt,
-  //         timestamp: new Date(baseTime.getTime() - 60000) // 用户消息在AI回复前1分钟
-  //       }
-
-  //       const aiMessage: Message = {
-  //         id: `ai-${i}`,
-  //         role: 'assistant',
-  //         content: conversation.aiResponse,
-  //         timestamp: baseTime
-  //       }
-
-  //       // 生成对应的游戏版本
-  //       const gameResult = await gameAgents.current.generateGame(conversation.userPrompt, [])
-
-  //       const gameVersion: GameVersion = {
-  //         id: i,
-  //         files: gameResult.files,
-  //         description: gameResult.description,
-  //         timestamp: baseTime,
-  //         messageId: aiMessage.id
-  //       }
-
-  //       initialMessages.push(userMessage, aiMessage)
-  //       initialGameVersions.push(gameVersion)
-  //     }
-
-  //     setMessages(initialMessages)
-  //     setGameVersions(initialGameVersions)
-  //     setCurrentGameIndex(0) // 默认显示第一个游戏
-  //   }
-
-  //   initializeExamples()
-  // }, [])
 
   const handleSendMessage = async (content: string) => {
+    // 防止重复请求
+    if (requestInProgress.current) {
+      console.log('Request already in progress, ignoring duplicate call')
+      return
+    }
+
+    requestInProgress.current = true
+
+    // 创建用户消息显示
     const userMessage: Message = {
       id: Date.now().toString(),
       role: 'user',
@@ -85,32 +37,55 @@ export default function Home() {
       timestamp: new Date()
     }
 
-    setMessages(prev => [...prev, userMessage])
+    const newMessages = [...messages, userMessage]
+    setMessages(newMessages)
     setIsGenerating(true)
 
     try {
-      // 使用多代理系统生成游戏
-      const gameResult = await gameAgents.current.generateGame(content, messages)
+      let gameResponse: NewGameResponse | HistoryBasedGameResponse
 
+      if (!currentConversationId || !currentParentMessageId) {
+        // 新游戏对话
+        gameResponse = await ConversationApi.createNewGame({ user_prompt: content })
+
+        // 更新对话状态
+        setCurrentConversationId(gameResponse.conversation_id)
+        setCurrentParentMessageId(gameResponse.message_id)
+      } else {
+        // 基于历史的游戏生成
+        gameResponse = await ConversationApi.createHistoryBasedGame({
+          conversation_id: currentConversationId,
+          parent_message_id: currentParentMessageId,
+          user_prompt: content
+        })
+
+        // 更新父消息ID
+        setCurrentParentMessageId(gameResponse.message_id)
+      }
+
+      // 创建AI回复消息
       const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
+        id: gameResponse.message_id,
         role: 'assistant',
-        content: gameResult.description,
+        content: `已生成游戏：${gameResponse.game_data.title}`,
         timestamp: new Date()
       }
 
+      // 创建游戏版本
       const newGameVersion: GameVersion = {
         id: gameVersions.length,
-        files: gameResult.files,
-        description: gameResult.description,
-        userPrompt: content,  // 保存用户输入的原始提示词
+        files: { html: gameResponse.game_data.html_content },
+        description: gameResponse.game_data.description,
+        userPrompt: content,
         timestamp: new Date(),
-        messageId: aiMessage.id
+        messageId: gameResponse.message_id
       }
 
-      setMessages(prev => [...prev, aiMessage])
+      const finalMessages = [...newMessages, aiMessage]
+      setMessages(finalMessages)
       setGameVersions(prev => [...prev, newGameVersion])
       setCurrentGameIndex(gameVersions.length)
+
     } catch (error) {
       console.error('生成游戏失败:', error)
       const errorMessage: Message = {
@@ -122,6 +97,7 @@ export default function Home() {
       setMessages(prev => [...prev, errorMessage])
     } finally {
       setIsGenerating(false)
+      requestInProgress.current = false  // 重置请求状态
     }
   }
 
@@ -135,6 +111,84 @@ export default function Home() {
         version.id === updatedVersion.id ? updatedVersion : version
       )
     )
+  }
+
+  // 处理选择对话
+  const handleSelectConversation = async (conversationId: string) => {
+    try {
+      // 获取对话详细数据
+      const conversationFull = await ConversationApi.getConversationFull(conversationId)
+
+      setCurrentConversationId(conversationFull.conversation_id)
+
+      // 转换消息格式，每个后端消息对应一对用户-助手消息
+      const loadedMessages: Message[] = []
+      const loadedGameVersions: GameVersion[] = []
+
+      conversationFull.messages.forEach((backendMsg, index) => {
+        // 用户消息
+        const userMessage: Message = {
+          id: `${backendMsg.message_id}_user`,
+          role: 'user',
+          content: backendMsg.user_prompt,
+          timestamp: new Date(backendMsg.timestamp)
+        }
+        loadedMessages.push(userMessage)
+
+        // 助手消息
+        const assistantMessage: Message = {
+          id: backendMsg.message_id,
+          role: 'assistant',
+          content: `已生成游戏：${backendMsg.game_data.title}`,
+          timestamp: new Date(backendMsg.timestamp)
+        }
+        loadedMessages.push(assistantMessage)
+
+        // 创建游戏版本
+        const gameVersion: GameVersion = {
+          id: index,
+          files: { html: backendMsg.game_data.html_content },
+          description: backendMsg.game_data.description,
+          userPrompt: backendMsg.user_prompt,
+          timestamp: new Date(backendMsg.timestamp),
+          messageId: backendMsg.message_id
+        }
+        loadedGameVersions.push(gameVersion)
+      })
+
+      setMessages(loadedMessages)
+      setGameVersions(loadedGameVersions)
+      setCurrentGameIndex(loadedGameVersions.length > 0 ? loadedGameVersions.length - 1 : -1)
+
+      // 设置最后一个消息为父消息ID（用于继续对话）
+      if (conversationFull.messages.length > 0) {
+        const lastMessage = conversationFull.messages[conversationFull.messages.length - 1]
+        setCurrentParentMessageId(lastMessage.message_id)
+      }
+
+    } catch (error) {
+      console.error('加载对话失败:', error)
+    }
+  }
+
+  // 处理新对话
+  const handleNewConversation = () => {
+    setCurrentConversationId('')
+    setCurrentParentMessageId('')
+    setMessages([])
+    setGameVersions([])
+    setCurrentGameIndex(-1)
+    // 对话会在第一次发送消息时自动创建
+  }
+
+  // 打开对话选择模态框
+  const handleOpenConversations = () => {
+    setShowConversationModal(true)
+  }
+
+  // 关闭对话选择模态框
+  const handleCloseConversations = () => {
+    setShowConversationModal(false)
   }
 
   return (
@@ -164,6 +218,7 @@ export default function Home() {
               <ChatInput
                 onSendMessage={handleSendMessage}
                 isGenerating={isGenerating}
+                onOpenConversations={handleOpenConversations}
               />
             </div>
           }
@@ -172,6 +227,14 @@ export default function Home() {
           maxLeftWidth={80}
         />
       </div>
+
+      {/* 对话选择模态框 */}
+      <ConversationModal
+        isOpen={showConversationModal}
+        onClose={handleCloseConversations}
+        onSelectConversation={handleSelectConversation}
+        onNewConversation={handleNewConversation}
+      />
     </div>
   )
 }

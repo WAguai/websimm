@@ -17,9 +17,9 @@ class FileGenerateAgent(BaseAgent):
   你是一位专业的前端开发工程师，擅长将游戏设计转化为可运行的HTML5网页游戏代码。
   用户将向你提供游戏的设计文档，包括游戏名称、类型、核心玩法和描述。
   你的任务是基于这些信息，生成一个包含所有代码的完整HTML文件。
-  请按照以下格式输出结构化的代码文件（JSON）：
+  请按照以下格式输出结构化的代码文件：
 
--输出格式：
+-输出格式如下,不要有多余的参数：
   {
     "html": "完整的HTML文件内容，包含内嵌的CSS样式和JavaScript代码"
   }
@@ -97,26 +97,27 @@ class FileGenerateAgent(BaseAgent):
         
         return enhanced_prompt
     
-    async def process(self, context: GameContext) -> GameContext:
+    async def process(self, context: GameContext, session_id: str = None) -> GameContext:
         """处理游戏文件生成"""
         logger.info(f"📄 {self.agent_name}: 开始生成游戏文件...")
-        
+
         try:
             # 构建增强提示词
             enhanced_prompt = self.build_enhanced_prompt(context)
             logger.info(f"🔧 增强提示词长度: {len(enhanced_prompt)}")
-            
-            # 调用AI生成游戏文件
+
+            # 调用AI生成游戏文件（注意：不传递 previous_chat_id，因为我们不希望保存这个agent的历史）
             response = await self.ai_client.get_game_files(
                 self.system_message,
                 enhanced_prompt
             )
-            
+            print("file",response)
+
             logger.info(f"📄 {self.agent_name} 响应长度: {len(response['content'])}")
-            
+
             # 解析响应
             files_data = self.extract_json_code_block(response["content"])
-            
+
             # 创建游戏文件（只包含HTML）
             game_files = GameFiles(
                 html=files_data["html"]

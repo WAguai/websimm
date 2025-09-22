@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>雷霆战机</title>
+    <script src="https://cdn.jsdelivr.net/npm/phaser@3.70.0/dist/phaser.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background:
+                radial-gradient(circle at 20% 80%, rgba(120, 119, 198, 0.3) 0%, transparent 50%),
+                radial-gradient(circle at 80% 20%, rgba(255, 119, 198, 0.3) 0%, transparent 50%),
+                linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            font-family: Arial, sans-serif;
+            animation: backgroundPulse 10s ease-in-out infinite alternate;
+        }
+
+        @keyframes backgroundPulse {
+            0% { filter: brightness(1) contrast(1); }
+            100% { filter: brightness(1.1) contrast(1.05); }
+        }
+
+        #game-container {
+            box-shadow:
+                0 0 20px rgba(0, 255, 255, 0.4),
+                0 0 40px rgba(0, 255, 255, 0.2),
+                0 0 80px rgba(0, 100, 255, 0.1);
+            border-radius: 15px;
+            overflow: hidden;
+            border: 2px solid rgba(0, 255, 255, 0.2);
+            position: relative;
+        }
+
+        #game-container::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            right: -2px;
+            bottom: -2px;
+            background: linear-gradient(45deg,
+                rgba(0, 255, 255, 0.6) 0%,
+                rgba(255, 0, 255, 0.6) 25%,
+                rgba(255, 255, 0, 0.6) 50%,
+                rgba(0, 255, 255, 0.6) 75%,
+                rgba(255, 0, 255, 0.6) 100%);
+            z-index: -1;
+            border-radius: 15px;
+            animation: borderGlow 3s linear infinite;
+        }
+
+        @keyframes borderGlow {
+            0% { background-position: 0% 50%; }
+            100% { background-position: 400% 50%; }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container"></div>
+
+    <script>
+        let config = {
+            type: Phaser.WEBGL,
+            width: 800,
+            height: 600,
+            parent: 'game-container',
+            backgroundColor: '#000011',
+            antialias: true,
+            transparent: false,
+            physics: {
+                default: 'arcade',
+                arcade: {
+                    gravity: { y: 0 },
+                    debug: false
+                }
+            },
+            render: {
+                pixelArt: false,
+                antialias: true,
+                transparent: false,
+                clearBeforeRender: true,
+                batchSize: 4096,
+                maxLights: 10,
+                mipmapFilter: 'LINEAR_MIPMAP_LINEAR'
+            },
+            scene: {
+                preload: preload,
+                create: create,
+                update: update
+            }
+        };
+
+        // 游戏变量
+        let player;
+        let bullets;
+        let enemies;
+        let enemyBullets;
+        let powerUps;
+        let stars;
+        let cursors;
+        let spaceKey;
+
+        // 粒子系统
+        let particleEmitter;
+        let explosionParticles;
+        let starfieldEmitter;
+
+        let score = 0;
+        let lives = 3;
+        let weaponLevel = 1;
+        let gameOver = false;
+        let fireRate = 200;
+        let nextFire = 0;
+
+        let scoreText;
+        let livesText;
+        let weaponText;
+
+        let enemySpawnTimer = 0;
+        let powerUpSpawnTimer = 0;
+
+        function preload() {
+            // 创建图形纹理
+            createTextures(this);
+
+            // 创建粒子纹理
+            createParticleTextures(this);
+        }
+
+        function createTextures(scene) {
+            // 玩家飞机 - 增强版
+            let playerGraphics = scene.add.graphics();
+            playerGraphics.fillGradientStyle(0x00ff00, 0x00ff00, 0x00aa00, 0x00aa00);
+            playerGraphics.fillTriangle(15, 0, 0, 30, 30, 30);
+            playerGraphics.fillStyle(0x00ffff);
+            playerGraphics.fillRect(12, 8, 6, 15);
+            playerGraphics.fillRect(8, 12, 3, 8);
+            playerGraphics.fillRect(19, 12, 3, 8);
+            playerGraphics.generateTexture('player', 30, 30);
+            playerGraphics.destroy();
+
+            // 玩家子弹 - 光效版
+            let bulletGraphics = scene.add.graphics();
+            bulletGraphics.fillGradientStyle(0xffffff, 0xffffff, 0xffff00, 0xffff00);
+            bulletGraphics.fillRect(0, 0, 4, 10);
+            bulletGraphics.fillStyle(0xffffff);
+            bulletGraphics.fillRect(1, 2, 2, 6);
+            bulletGraphics.generateTexture('bullet', 4, 10);
+            bulletGraphics.destroy();
+
+            // 强化子弹 - 等离子体效果
+            let powerBulletGraphics = scene.add.graphics();
+            powerBulletGraphics.fillGradientStyle(0xff00ff, 0xff00ff, 0xff0099, 0xff0099);
+            powerBulletGraphics.fillRect(0, 0, 6, 12);
+            powerBulletGraphics.fillStyle(0xffffff);
+            powerBulletGraphics.fillEllipse(3, 6, 3, 6);
+            powerBulletGraphics.generateTexture('powerBullet', 6, 12);
+            powerBulletGraphics.destroy();
+
+            // 敌机1
+            let enemy1Graphics = scene.add.graphics();
+            enemy1Graphics.fillStyle(0xff0000);
+            enemy1Graphics.fillTriangle(12, 0, 0, 24, 24, 24);
+            enemy1Graphics.generateTexture('enemy1', 24, 24);
+            enemy1Graphics.destroy();
+
+            // 敌机2
+            let enemy2Graphics = scene.add.graphics();
+            enemy2Graphics.fillStyle(0xff6600);
+            enemy2Graphics.fillRect(0, 0, 30, 25);
+            enemy2Graphics.fillTriangle(15, 25, 5, 35, 25, 35);
+            enemy2Graphics.generateTexture('enemy2', 30, 35);
+            enemy2Graphics.destroy();
+
+            // 敌机3 (Boss)
+            let enemy3Graphics = scene.add.graphics();
+            enemy3Graphics.fillStyle(0x990000);
+            enemy3Graphics.fillRect(0, 0, 40, 30);
+            enemy3Graphics.fillRect(-5, 10, 50, 10);
+            enemy3Graphics.fillTriangle(20, 30, 5, 45, 35, 45);
+            enemy3Graphics.generateTexture('enemy3', 50, 45);
+            enemy3Graphics.destroy();
+
+            // 敌机子弹
+            let enemyBulletGraphics = scene.add.graphics();
+            enemyBulletGraphics.fillStyle(0xff4444);
+            enemyBulletGraphics.fillCircle(3, 3, 3);
+            enemyBulletGraphics.generateTexture('enemyBullet', 6, 6);
+            enemyBulletGraphics.destroy();
+
+            // 武器道具
+            let weaponPowerUpGraphics = scene.add.graphics();
+            weaponPowerUpGraphics.fillStyle(0x00ffff);
+            weaponPowerUpGraphics.fillRect(2, 2, 20, 20);
+            weaponPowerUpGraphics.fillStyle(0xffffff);
+            weaponPowerUpGraphics.fillRect(8, 8, 8, 8);
+            weaponPowerUpGraphics.generateTexture('weaponPowerUp', 24, 24);
+            weaponPowerUpGraphics.destroy();
+
+            // 生命道具
+            let healthPowerUpGraphics = scene.add.graphics();
+            healthPowerUpGraphics.fillStyle(0xff00ff);
+            healthPowerUpGraphics.fillCircle(8, 8, 8);
+            healthPowerUpGraphics.fillStyle(0xffffff);
+            healthPowerUpGraphics.fillRect(7, 4, 2, 8);
+            healthPowerUpGraphics.fillRect(4, 7, 8, 2);
+            healthPowerUpGraphics.generateTexture('healthPowerUp', 16, 16);
+            healthPowerUpGraphics.destroy();
+
+            // 星星
+            let starGraphics = scene.add.graphics();
+            starGraphics.fillStyle(0xffffff);
+            starGraphics.fillCircle(1, 1, 1);
+            starGraphics.generateTexture('star', 2, 2);
+            starGraphics.destroy();
+        }
+
+        function createParticleTextures(scene) {
+            // 火花粒子
+            let sparkGraphics = scene.add.graphics();
+            sparkGraphics.fillStyle(0xffaa00);
+            sparkGraphics.fillCircle(2, 2, 2);
+            sparkGraphics.fillStyle(0xffffff);
+            sparkGraphics.fillCircle(2, 2, 1);
+            sparkGraphics.generateTexture('spark', 4, 4);
+            sparkGraphics.destroy();
+
+            // 能量粒子
+            let energyGraphics = scene.add.graphics();
+            energyGraphics.fillGradientStyle(0x00ffff, 0x00ffff, 0x0088ff, 0x0088ff);
+            energyGraphics.fillCircle(3, 3, 3);
+            energyGraphics.generateTexture('energyParticle', 6, 6);
+            energyGraphics.destroy();
+
+            // 烟雾粒子
+            let smokeGraphics = scene.add.graphics();
+            smokeGraphics.fillStyle(0x666666);
+            smokeGraphics.fillCircle(4, 4, 4);
+            smokeGraphics.generateTexture('smoke', 8, 8);
+            smokeGraphics.destroy();
+        }
+
+        function create() {
+            // 创建动态星空背景
+            createStarfield(this);
+
+            // 创建粒子系统
+            explosionParticles = this.add.particles(0, 0, 'spark', {
+                scale: { start: 0.3, end: 0 },
+                speed: { min: 50, max: 150 },
+                lifespan: 300,
+                emitting: false
+            });
+
+            particleEmitter = this.add.particles(0, 0, 'energyParticle', {
+                scale: { start: 0.5, end: 0 },
+                speed: { min: 20, max: 80 },
+                lifespan: 500,
+                emitting: false
+            });
+
+            // 创建玩家 - 添加引擎尾焰效果
+            player = this.physics.add.sprite(400, 500, 'player');
+            player.setCollideWorldBounds(true);
+
+            // 玩家引擎尾焰
+            let playerTrail = this.add.particles(player.x, player.y + 15, 'energyParticle', {
+                scale: { start: 0.3, end: 0 },
+                speed: { min: 10, max: 30 },
+                lifespan: 200,
+                frequency: 50,
+                follow: player,
+                followOffset: { y: 15 }
+            });
+
+            // 创建组
+            bullets = this.physics.add.group();
+            enemies = this.physics.add.group();
+            enemyBullets = this.physics.add.group();
+            powerUps = this.physics.add.group();
+
+            // 键盘输入
+            cursors = this.input.keyboard.createCursorKeys();
+            spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+            // 碰撞检测
+            this.physics.add.overlap(bullets, enemies, hitEnemy, null, this);
+            this.physics.add.overlap(player, enemies, hitPlayer, null, this);
+            this.physics.add.overlap(player, enemyBullets, hitPlayerBullet, null, this);
+            this.physics.add.overlap(player, powerUps, collectPowerUp, null, this);
+
+            // UI文本 - 增强样式
+            scoreText = this.add.text(16, 16, 'Score: 0', {
+                fontSize: '24px',
+                fill: '#00ff00',
+                stroke: '#000000',
+                strokeThickness: 2,
+                shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 3, fill: true }
+            });
+            livesText = this.add.text(16, 50, 'Lives: 3', {
+                fontSize: '24px',
+                fill: '#ff0000',
+                stroke: '#000000',
+                strokeThickness: 2,
+                shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 3, fill: true }
+            });
+            weaponText = this.add.text(16, 84, 'Weapon: Level 1', {
+                fontSize: '20px',
+                fill: '#ffff00',
+                stroke: '#000000',
+                strokeThickness: 2,
+                shadow: { offsetX: 2, offsetY: 2, color: '#000000', blur: 3, fill: true }
+            });
+
+            // 游戏提示
+            let titleText = this.add.text(400, 200, '雷霆战机', {
+                fontSize: '48px',
+                fill: '#ffffff'
+            }).setOrigin(0.5);
+
+            let instructionText = this.add.text(400, 260, '方向键移动，空格键射击', {
+                fontSize: '20px',
+                fill: '#ffffff'
+            }).setOrigin(0.5);
+
+            // 标题淡入动画
+            titleText.setAlpha(0);
+            instructionText.setAlpha(0);
+
+            this.tweens.add({
+                targets: [titleText, instructionText],
+                alpha: 1,
+                duration: 1000,
+                ease: 'Power2'
+            });
+
+            // 3秒后隐藏提示
+            this.time.delayedCall(3000, () => {
+                this.tweens.add({
+                    targets: [titleText, instructionText],
+                    alpha: 0,
+                    duration: 500,
+                    onComplete: () => {
+                        titleText.setVisible(false);
+                        instructionText.setVisible(false);
+                    }
+                });
+            });
+        }
+
+        function createStarfield(scene) {
+            stars = scene.add.group();
+            for (let i = 0; i < 150; i++) {
+                let star = scene.add.image(
+                    Phaser.Math.Between(0, 800),
+                    Phaser.Math.Between(0, 600),
+                    'star'
+                );
+                star.alpha = Phaser.Math.FloatBetween(0.3, 1);
+                star.speed = Phaser.Math.FloatBetween(1, 5);
+                star.setScale(Phaser.Math.FloatBetween(0.5, 2));
+                stars.add(star);
+
+                // 星星闪烁动画
+                scene.tweens.add({
+                    targets: star,
+                    alpha: { from: star.alpha, to: 0.1 },
+                    duration: Phaser.Math.Between(1000, 3000),
+                    yoyo: true,
+                    repeat: -1,
+                    ease: 'Sine.easeInOut'
+                });
+            }
+        }
+
+        function updateStarfield() {
+            stars.children.entries.forEach(star => {
+                star.y += star.speed;
+                if (star.y > 600) {
+                    star.y = -10;
+                    star.x = Phaser.Math.Between(0, 800);
+                }
+            });
+        }
+
+        function update(time) {
+            if (gameOver) return;
+
+            // 背景滚动
+            updateStarfield();
+
+            // 玩家移动
+            if (cursors.left.isDown) {
+                player.setVelocityX(-300);
+            } else if (cursors.right.isDown) {
+                player.setVelocityX(300);
+            } else {
+                player.setVelocityX(0);
+            }
+
+            if (cursors.up.isDown) {
+                player.setVelocityY(-300);
+            } else if (cursors.down.isDown) {
+                player.setVelocityY(300);
+            } else {
+                player.setVelocityY(0);
+            }
+
+            // 射击
+            if (spaceKey.isDown && time > nextFire) {
+                fireBullet();
+                nextFire = time + fireRate;
+
+                // 射击时的粒子效果
+                particleEmitter.emitParticleAt(player.x, player.y - 10, 3);
+            }
+
+            // 生成敌人
+            if (time > enemySpawnTimer) {
+                spawnEnemy();
+                enemySpawnTimer = time + Phaser.Math.Between(800, 1500);
+            }
+
+            // 生成道具
+            if (time > powerUpSpawnTimer) {
+                spawnPowerUp();
+                powerUpSpawnTimer = time + Phaser.Math.Between(8000, 15000);
+            }
+
+            // 敌机射击
+            enemies.children.entries.forEach(enemy => {
+                if (enemy.enemyType >= 2 && Phaser.Math.Between(1, 100) <= 2) {
+                    enemyFire(enemy);
+                }
+                if (enemy.enemyType === 3) {
+                    enemy.x += Math.sin(enemy.y * 0.01) * 2;
+                }
+            });
+
+            // 清理屏幕外的对象
+            cleanupObjects();
+        }
+
+        function fireBullet() {
+            let scene = game.scene.scenes[0];
+
+            if (weaponLevel === 1) {
+                let bullet = bullets.create(player.x, player.y - 20, 'bullet');
+                bullet.setVelocityY(-400);
+                addBulletGlow(bullet);
+            } else if (weaponLevel === 2) {
+                let bullet1 = bullets.create(player.x - 10, player.y - 20, 'bullet');
+                let bullet2 = bullets.create(player.x + 10, player.y - 20, 'bullet');
+                bullet1.setVelocityY(-400);
+                bullet2.setVelocityY(-400);
+                addBulletGlow(bullet1);
+                addBulletGlow(bullet2);
+            } else if (weaponLevel >= 3) {
+                let bullet1 = bullets.create(player.x, player.y - 20, 'powerBullet');
+                let bullet2 = bullets.create(player.x - 15, player.y - 20, 'powerBullet');
+                let bullet3 = bullets.create(player.x + 15, player.y - 20, 'powerBullet');
+                bullet1.setVelocity(0, -400);
+                bullet2.setVelocity(-50, -400);
+                bullet3.setVelocity(50, -400);
+                addPowerBulletEffect(bullet1);
+                addPowerBulletEffect(bullet2);
+                addPowerBulletEffect(bullet3);
+            }
+        }
+
+        function addBulletGlow(bullet) {
+            let scene = game.scene.scenes[0];
+            scene.tweens.add({
+                targets: bullet,
+                alpha: { from: 1, to: 0.7 },
+                duration: 100,
+                yoyo: true,
+                repeat: -1
+            });
+        }
+
+        function addPowerBulletEffect(bullet) {
+            let scene = game.scene.scenes[0];
+            scene.tweens.add({
+                targets: bullet,
+                scaleX: { from: 1, to: 1.2 },
+                scaleY: { from: 1, to: 1.2 },
+                duration: 150,
+                yoyo: true,
+                repeat: -1
+            });
+        }
+
+        function spawnEnemy() {
+            let x = Phaser.Math.Between(50, 750);
+            let enemyType = Phaser.Math.Between(1, 100) <= 70 ? 1 :
+                           Phaser.Math.Between(1, 100) <= 90 ? 2 : 3;
+
+            let enemy;
+            let health;
+            let points;
+            let scene = game.scene.scenes[0];
+
+            switch (enemyType) {
+                case 1:
+                    enemy = enemies.create(x, -30, 'enemy1');
+                    enemy.setVelocityY(150);
+                    health = 1;
+                    points = 100;
+                    // 敌机1摆动动画
+                    scene.tweens.add({
+                        targets: enemy,
+                        x: x + 20,
+                        duration: 1000,
+                        yoyo: true,
+                        repeat: -1,
+                        ease: 'Sine.easeInOut'
+                    });
+                    break;
+                case 2:
+                    enemy = enemies.create(x, -40, 'enemy2');
+                    enemy.setVelocityY(100);
+                    health = 3;
+                    points = 300;
+                    // 敌机2旋转动画
+                    scene.tweens.add({
+                        targets: enemy,
+                        rotation: Phaser.Math.PI2,
+                        duration: 2000,
+                        repeat: -1,
+                        ease: 'Linear'
+                    });
+                    break;
+                case 3:
+                    enemy = enemies.create(x, -50, 'enemy3');
+                    enemy.setVelocityY(80);
+                    health = 8;
+                    points = 1000;
+                    // Boss缩放脉冲效果
+                    scene.tweens.add({
+                        targets: enemy,
+                        scaleX: { from: 1, to: 1.1 },
+                        scaleY: { from: 1, to: 1.1 },
+                        duration: 800,
+                        yoyo: true,
+                        repeat: -1,
+                        ease: 'Power2'
+                    });
+                    break;
+            }
+
+            enemy.enemyType = enemyType;
+            enemy.health = health;
+            enemy.points = points;
+
+            // 敌机入场动画
+            enemy.setAlpha(0);
+            scene.tweens.add({
+                targets: enemy,
+                alpha: 1,
+                duration: 300
+            });
+        }
+
+        function spawnPowerUp() {
+            let x = Phaser.Math.Between(50, 750);
+            let powerUpType = Phaser.Math.Between(1, 100) <= 70 ? 'weapon' : 'health';
+            let scene = game.scene.scenes[0];
+
+            let powerUp = powerUps.create(x, -30,
+                powerUpType === 'weapon' ? 'weaponPowerUp' : 'healthPowerUp');
+            powerUp.setVelocityY(100);
+            powerUp.powerUpType = powerUpType;
+
+            // 道具多重特效组合
+            scene.tweens.add({
+                targets: powerUp,
+                alpha: { from: 1, to: 0.5 },
+                duration: 400,
+                yoyo: true,
+                repeat: -1
+            });
+
+            scene.tweens.add({
+                targets: powerUp,
+                scaleX: { from: 1, to: 1.3 },
+                scaleY: { from: 1, to: 1.3 },
+                duration: 600,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.easeInOut'
+            });
+
+            scene.tweens.add({
+                targets: powerUp,
+                rotation: Phaser.Math.PI2,
+                duration: 2000,
+                repeat: -1,
+                ease: 'Linear'
+            });
+
+            // 道具光晕效果
+            let halo = scene.add.circle(x, -30, 15, 0x00ffff, 0.3);
+            scene.physics.add.existing(halo);
+            halo.body.setVelocityY(100);
+
+            scene.tweens.add({
+                targets: halo,
+                scaleX: { from: 0.5, to: 1.5 },
+                scaleY: { from: 0.5, to: 1.5 },
+                alpha: { from: 0.3, to: 0.1 },
+                duration: 1000,
+                yoyo: true,
+                repeat: -1
+            });
+
+            // 道具销毁时一起销毁光晕
+            powerUp.halo = halo;
+        }
+
+        function enemyFire(enemy) {
+            let bullet = enemyBullets.create(enemy.x, enemy.y + 20, 'enemyBullet');
+            bullet.setVelocityY(200);
+        }
+
+        function hitEnemy(bullet, enemy) {
+            createExplosion(enemy.x, enemy.y);
+            bullet.destroy();
+            enemy.health--;
+
+            if (enemy.health <= 0) {
+                score += enemy.points;
+                scoreText.setText('Score: ' + score);
+                enemy.destroy();
+            } else {
+                enemy.setTint(0xff0000);
+                game.scene.scenes[0].time.delayedCall(100, () => {
+                    if (enemy.active) {
+                        enemy.clearTint();
+                    }
+                });
+            }
+        }
+
+        function hitPlayer(player, enemy) {
+            createExplosion(player.x, player.y);
+            enemy.destroy();
+            loseLife();
+        }
+
+        function hitPlayerBullet(player, bullet) {
+            bullet.destroy();
+            loseLife();
+        }
+
+        function loseLife() {
+            lives--;
+            livesText.setText('Lives: ' + lives);
+
+            player.setTint(0xff0000);
+            game.scene.scenes[0].time.delayedCall(500, () => {
+                player.clearTint();
+            });
+
+            if (lives <= 0) {
+                gameOverSequence();
+            }
+        }
+
+        function collectPowerUp(player, powerUp) {
+            // 销毁道具及其光晕
+            if (powerUp.halo) {
+                powerUp.halo.destroy();
+            }
+            powerUp.destroy();
+
+            if (powerUp.powerUpType === 'weapon') {
+                weaponLevel = Math.min(weaponLevel + 1, 5);
+                weaponText.setText('Weapon: Level ' + weaponLevel);
+                fireRate = Math.max(100, fireRate - 20);
+
+                // 武器升级UI反馈
+                let scene = game.scene.scenes[0];
+                scene.tweens.add({
+                    targets: weaponText,
+                    scaleX: { from: 1, to: 1.2 },
+                    scaleY: { from: 1, to: 1.2 },
+                    duration: 200,
+                    yoyo: true
+                });
+            } else if (powerUp.powerUpType === 'health') {
+                lives = Math.min(lives + 1, 5);
+                livesText.setText('Lives: ' + lives);
+
+                // 生命恢复UI反馈
+                let scene = game.scene.scenes[0];
+                scene.tweens.add({
+                    targets: livesText,
+                    scaleX: { from: 1, to: 1.2 },
+                    scaleY: { from: 1, to: 1.2 },
+                    duration: 200,
+                    yoyo: true
+                });
+            }
+
+            createPowerUpEffect(player.x, player.y);
+        }
+
+        function createExplosion(x, y) {
+            // 爆炸粒子效果
+            explosionParticles.emitParticleAt(x, y, 15);
+
+            // 爆炸波
+            let explosion = game.scene.scenes[0].add.circle(x, y, 3, 0xff4400);
+            explosion.setStrokeStyle(2, 0xffaa00);
+            explosion.setScale(0);
+
+            game.scene.scenes[0].tweens.add({
+                targets: explosion,
+                scaleX: 3,
+                scaleY: 3,
+                alpha: { from: 1, to: 0 },
+                duration: 400,
+                ease: 'Power2',
+                onComplete: () => {
+                    explosion.destroy();
+                }
+            });
+
+            // 额外的闪光效果
+            let flash = game.scene.scenes[0].add.circle(x, y, 20, 0xffffff, 0.8);
+            game.scene.scenes[0].tweens.add({
+                targets: flash,
+                alpha: 0,
+                duration: 100,
+                onComplete: () => {
+                    flash.destroy();
+                }
+            });
+        }
+
+        function createPowerUpEffect(x, y) {
+            for (let i = 0; i < 10; i++) {
+                let particle = game.scene.scenes[0].add.circle(x, y, 3, 0x00ffff);
+
+                game.scene.scenes[0].tweens.add({
+                    targets: particle,
+                    x: x + Phaser.Math.Between(-50, 50),
+                    y: y + Phaser.Math.Between(-50, 50),
+                    alpha: 0,
+                    duration: 500,
+                    onComplete: () => {
+                        particle.destroy();
+                    }
+                });
+            }
+        }
+
+        function cleanupObjects() {
+            // 优化清理逻辑，减少遍历次数
+            const toDestroy = [];
+
+            bullets.children.entries.forEach(bullet => {
+                if (bullet.y < -10) toDestroy.push(bullet);
+            });
+
+            enemyBullets.children.entries.forEach(bullet => {
+                if (bullet.y > 610) toDestroy.push(bullet);
+            });
+
+            enemies.children.entries.forEach(enemy => {
+                if (enemy.y > 610) toDestroy.push(enemy);
+            });
+
+            powerUps.children.entries.forEach(powerUp => {
+                if (powerUp.y > 610) {
+                    if (powerUp.halo) {
+                        toDestroy.push(powerUp.halo);
+                    }
+                    toDestroy.push(powerUp);
+                }
+            });
+
+            // 批量销毁对象
+            toDestroy.forEach(obj => {
+                if (obj && obj.active) obj.destroy();
+            });
+        }
+
+        function gameOverSequence() {
+            gameOver = true;
+
+            player.setVelocity(0, 0);
+            enemies.children.entries.forEach(enemy => {
+                enemy.setVelocity(0, 0);
+            });
+
+            let scene = game.scene.scenes[0];
+            let gameOverBg = scene.add.rectangle(400, 300, 400, 200, 0x000000, 0.8);
+            let gameOverText = scene.add.text(400, 250, 'GAME OVER', {
+                fontSize: '36px',
+                fill: '#ff0000'
+            }).setOrigin(0.5);
+
+            let finalScoreText = scene.add.text(400, 300, 'Final Score: ' + score, {
+                fontSize: '24px',
+                fill: '#ffffff'
+            }).setOrigin(0.5);
+
+            let restartText = scene.add.text(400, 350, 'Press R to Restart', {
+                fontSize: '20px',
+                fill: '#00ff00'
+            }).setOrigin(0.5);
+
+            let restartKey = scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.R);
+            restartKey.on('down', () => {
+                // 重置游戏状态
+                score = 0;
+                lives = 3;
+                weaponLevel = 1;
+                gameOver = false;
+                fireRate = 200;
+                nextFire = 0;
+                enemySpawnTimer = 0;
+                powerUpSpawnTimer = 0;
+
+                scene.scene.restart();
+            });
+
+            scene.tweens.add({
+                targets: restartText,
+                alpha: 0.3,
+                duration: 500,
+                yoyo: true,
+                repeat: -1
+            });
+        }
+
+        // 启动游戏
+        let game = new Phaser.Game(config);
+    </script>
+</body>
+</html>

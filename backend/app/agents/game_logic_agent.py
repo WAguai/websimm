@@ -85,20 +85,23 @@ class GameLogicAgent(BaseAgent):
         
         return features
     
-    async def process(self, context: GameContext) -> GameContext:
+    async def process(self, context: GameContext, session_id: str = None) -> GameContext:
         """处理游戏逻辑生成"""
         logger.info(f"🎮 {self.agent_name}: 开始生成游戏逻辑...")
-        
+
         try:
             # 调用AI生成游戏逻辑
+            print("logic user_prompt：", context.user_prompt)
             response = await self.ai_client.get_game_logic(
                 self.system_message,
-                context.user_prompt
+                context.user_prompt,
+                previous_chat_id=session_id
             )
             
             # 解析响应
+            print("logic",response)
             game_data = self.extract_json_code_block(response["content"])
-            
+            print(game_data)
             
             # 创建游戏逻辑结果
             game_logic_result = GameLogicResult(

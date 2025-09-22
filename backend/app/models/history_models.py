@@ -7,8 +7,11 @@ from bson import ObjectId
 class PyObjectId(ObjectId):
     """MongoDB ObjectId的Pydantic兼容版本"""
     @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
+    def __get_pydantic_core_schema__(
+        cls, _source_type: Any, _handler: Any
+    ) -> Any:
+        from pydantic_core import core_schema
+        return core_schema.no_info_plain_validator_function(cls.validate)
 
     @classmethod
     def validate(cls, v):
@@ -17,59 +20,115 @@ class PyObjectId(ObjectId):
         return ObjectId(v)
 
     @classmethod
-    def __modify_schema__(cls, field_schema):
+    def __get_pydantic_json_schema__(cls, field_schema):
         field_schema.update(type='string')
 
 
-class GameGenerationHistory(BaseModel):
-    """游戏生成历史记录"""
-    id: Optional[PyObjectId] = Field(alias="_id")
-    session_id: str = Field(..., description="会话ID")
-    user_prompt: str = Field(..., description="用户原始输入")
-    game_title: str = Field(..., description="游戏标题")
+
+
+class GameData(BaseModel):
+    """游戏数据"""
+    title: str = Field(..., description="游戏标题")
     game_type: str = Field(..., description="游戏类型")
     game_logic: str = Field(..., description="游戏逻辑")
     description: str = Field(..., description="游戏描述")
-    
-    # 生成的文件和资源
     html_content: str = Field(..., description="生成的HTML内容")
     image_resources: List[str] = Field(default=[], description="图像资源列表")
     audio_resources: List[str] = Field(default=[], description="音频资源列表")
-    
-    # 元数据
     agent_chain: List[str] = Field(default=[], description="Agent执行链")
     generation_time: datetime = Field(default_factory=datetime.utcnow, description="生成时间")
-    version: int = Field(default=1, description="版本号")
-    parent_version_id: Optional[PyObjectId] = Field(None, description="父版本ID（用于迭代）")
-    
-    # 用户反馈和评分
-    user_rating: Optional[int] = Field(None, ge=1, le=5, description="用户评分(1-5)")
-    user_feedback: Optional[str] = Field(None, description="用户反馈")
-    
-    class Config:
-        allow_population_by_field_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+
+
+class ConversationMessage(BaseModel):
+    """对话消息"""
+    message_id: str = Field(..., description="消息ID")
+    user_prompt: str = Field(..., description="用户原始输入")
+    history_enhanced_prompt: Optional[str] = Field(None, description="历史增强后的prompt")
+    parent_message_id: Optional[str] = Field(None, description="父消息ID")
+    timestamp: datetime = Field(default_factory=datetime.utcnow, description="时间戳")
+    game_data: Optional[GameData] = Field(None, description="游戏数据")
+    usage: Optional[Dict[str, Any]] = Field(None, description="Token使用情况")
 
 
 class ConversationHistory(BaseModel):
     """对话历史记录"""
-    id: Optional[PyObjectId] = Field(alias="_id")
-    session_id: str = Field(..., description="会话ID")
-    messages: List[Dict[str, Any]] = Field(default=[], description="对话消息列表")
+    id: Optional[PyObjectId] = Field(default=None, alias="_id")
+    conversation_id: str = Field(..., description="对话ID")
+    title: str = Field(default="新对话", description="对话标题")
+    messages: List[ConversationMessage] = Field(default=[], description="对话消息列表")
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
-    
-    class Config:
-        allow_population_by_field_name = True
-        arbitrary_types_allowed = True
-        json_encoders = {ObjectId: str}
+
+    model_config = {
+        "populate_by_name": True,
+        "arbitrary_types_allowed": True,
+        "json_encoders": {ObjectId: str}
+    }
 
 
 class GameIterationRequest(BaseModel):
     """游戏迭代请求"""
     session_id: str = Field(..., description="会话ID")
-    base_version_id: str = Field(..., description="基础版本ID")
     iteration_prompt: str = Field(..., description="迭代需求描述")
     keep_elements: List[str] = Field(default=[], description="保留的游戏元素")
     change_elements: List[str] = Field(default=[], description="需要修改的元素")
+
+
+class GameSummary(BaseModel):
+    """游戏摘要"""
+    user_prompt: str = Field(..., description="用户输入")
+    game_title: str = Field(..., description="游戏标题")
+    game_description: str = Field(..., description="游戏描述")
+    generation_time: datetime = Field(..., description="生成时间")
+
+
+class ConversationWithGamesSummary(BaseModel):
+    """带游戏信息的对话摘要"""
+    session_id: str = Field(..., description="会话ID")
+    title: str = Field(..., description="对话标题")
+    created_at: datetime = Field(..., description="创建时间")
+    updated_at: datetime = Field(..., description="更新时间")
+    games: List[GameSummary] = Field(default=[], description="游戏摘要列表")
+
+
+
+
+class ConversationCreateRequest(BaseModel):
+    """创建对话请求"""
+    session_id: str = Field(..., description="会话ID")
+    messages: List[Dict[str, Any]] = Field(default=[], description="初始消息列表")
+
+
+class ConversationUpdateRequest(BaseModel):
+    """更新对话请求"""
+    messages: List[Dict[str, Any]] = Field(..., description="消息列表")
+
+
+class NewGameRequest(BaseModel):
+    """新游戏生成请求"""
+    user_prompt: str = Field(..., description="用户输入")
+
+
+class HistoryBasedGameRequest(BaseModel):
+    """基于历史对话的游戏生成请求"""
+    conversation_id: str = Field(..., description="对话ID")
+    parent_message_id: str = Field(..., description="父消息ID")
+    user_prompt: str = Field(..., description="用户输入")
+
+
+class GameGenerationResponse(BaseModel):
+    """游戏生成响应"""
+    conversation_id: str = Field(..., description="对话ID")
+    message_id: str = Field(..., description="消息ID")
+    game_data: GameData = Field(..., description="游戏数据")
+    usage: Optional[Dict[str, Any]] = Field(None, description="Token使用情况")
+
+
+class ConversationSummaryResponse(BaseModel):
+    """对话摘要响应"""
+    intro: str = Field(..., description="对话简介（第一条消息的游戏标题）")
+    conversation_id: str = Field(..., description="对话ID")
+    timestamp: datetime = Field(..., description="创建时间")
+    messages: List[ConversationMessage] = Field(..., description="消息列表")
+
+

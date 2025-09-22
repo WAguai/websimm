@@ -1,6 +1,6 @@
 from ..models.context_models import GameContext, ContextMetadata
 from ..models.game_models import GameGenerationResult
-from ..models.history_models import GameIterationRequest
+from ..models.history_models import GameIterationRequest, GameData
 from ..agents.game_logic_agent import GameLogicAgent
 from ..agents.file_generate_agent import FileGenerateAgent
 from ..agents.image_resource_agent import ImageResourceAgent
@@ -27,7 +27,8 @@ class GameService:
         self,
         prompt: str,
         session_id: Optional[str] = None,
-        context_messages: List[Dict] = None
+        context_messages: List[Dict] = None,
+        save_to_history: bool = True
     ) -> GameGenerationResult:
         """
         多代理协作生成游戏
@@ -56,39 +57,61 @@ class GameService:
             
             # 1. 🎮 游戏逻辑 Agent 处理
             logger.info("=" * 50)
-            context = await self.game_logic_agent.process(context)
-            
+            context = await self.game_logic_agent.process(context, session_id)
+
             # 2. 📄 文件生成 Agent 处理
             logger.info("=" * 50)
-            context = await self.file_generate_agent.process(context)
-            
+            context = await self.file_generate_agent.process(context, session_id)
+
             # 3. 🎨 图像资源 Agent 处理
             logger.info("=" * 50)
-            context = await self.image_resource_agent.process(context)
-            
+            context = await self.image_resource_agent.process(context, session_id)
+
             # 4. 🔊 音效资源 Agent 处理
             logger.info("=" * 50)
-            context = await self.audio_resource_agent.process(context)
+            context = await self.audio_resource_agent.process(context, session_id)
             
             # 构建最终结果
             result = GameGenerationResult(
                 files=context.files,
+                title=context.game_logic.title,
                 description=context.game_logic.description,
+                game_type=context.game_logic.game_type,
                 game_logic=context.game_logic.game_logic,
                 image_resources=context.image_resources,
                 audio_resources=context.audio_resources
             )
             
             # 保存历史记录
-            try:
-                record_id = await history_service.save_game_generation(
-                    session_id, context, result
-                )
-                logger.info(f"💾 历史记录已保存: {record_id}")
-                result.session_id = session_id
-                result.record_id = record_id
-            except Exception as e:
-                logger.warning(f"⚠️  保存历史记录失败: {str(e)}")
+            if save_to_history:
+                try:
+                    # 创建游戏数据对象
+                    game_data = GameData(
+                        title=context.game_logic.title,
+                        game_type=context.game_logic.game_type,
+                        game_logic=context.game_logic.game_logic,
+                        description=context.game_logic.description,
+                        html_content=context.files.html,
+                        image_resources=context.image_resources,
+                        audio_resources=context.audio_resources,
+                        agent_chain=context.metadata.agent_chain
+                    )
+
+                    # 生成助手回复内容
+                    assistant_response = f"游戏已生成完成！\n\n游戏标题：{context.game_logic.title}\n游戏类型：{context.game_logic.game_type}\n\n{context.game_logic.description}"
+
+                    # 保存游戏消息（使用新的方法）
+                    conversation_id, message_id = await history_service.create_new_game_message(
+                        conversation_id=session_id,
+                        user_prompt=prompt,
+                        game_data=game_data,
+                        usage=None
+                    )
+
+                    logger.info(f"💾 游戏消息已保存: conversation_id={conversation_id}, message_id={message_id}")
+                    result.session_id = session_id
+                except Exception as e:
+                    logger.warning(f"⚠️  保存游戏对话失败: {str(e)}")
             
             logger.info("=" * 50)
             logger.info(f"🎉 游戏生成完成!")
@@ -123,41 +146,67 @@ class GameService:
         logger.info(f"📚 基础版本: {iteration_request.base_version_id}")
         
         try:
-            # 获取基础版本
-            base_game = await history_service.get_game_by_id(iteration_request.base_version_id)
-            if not base_game:
-                raise ValueError(f"未找到基础游戏版本: {iteration_request.base_version_id}")
-            
             # 获取历史对话上下文
             conversation_history = await history_service.get_conversation_history(
                 iteration_request.session_id
             )
-            
+
+            if not conversation_history or not conversation_history.messages:
+                raise ValueError(f"未找到会话历史: {iteration_request.session_id}")
+
+            # 从对话历史中获取最新的游戏数据作为基础版本
+            base_game_data = None
+            for message in reversed(conversation_history.messages):
+                if message.game_data:
+                    base_game_data = message.game_data
+                    break
+
+            if not base_game_data:
+                raise ValueError(f"未找到基础游戏数据: {iteration_request.session_id}")
+
             # 构建增强的提示词，包含历史信息
             enhanced_prompt = self._build_iteration_prompt(
-                iteration_request, base_game, conversation_history
+                iteration_request, base_game_data, conversation_history
             )
             
             logger.info(f"📖 增强提示词已构建，长度: {len(enhanced_prompt)} 字符")
             
-            # 使用增强提示词生成新版本
+            # 使用增强提示词生成新版本（不重复保存历史）
             result = await self.generate_game(
                 enhanced_prompt,
                 iteration_request.session_id,
-                conversation_history.messages if conversation_history else None
+                conversation_history.messages if conversation_history else None,
+                save_to_history=False
             )
             
-            # 保存迭代历史（带父版本关联）
+            # 保存迭代历史
             try:
-                await history_service.save_game_generation(
-                    iteration_request.session_id, 
-                    context=None,  # 这里需要从result重构context，暂时传None
-                    result=result,
-                    parent_version_id=iteration_request.base_version_id
+                # 构建游戏数据对象（从result重构）
+                game_data = GameData(
+                    title=result.title,
+                    game_type=result.game_type,
+                    game_logic=result.game_logic,
+                    description=result.description,
+                    html_content=result.files.html if result.files else "",
+                    image_resources=result.image_resources,
+                    audio_resources=result.audio_resources,
+                    agent_chain=["GameLogicAgent", "FileGenerateAgent", "ImageResourceAgent", "AudioResourceAgent"]
                 )
-                logger.info(f"💾 迭代历史记录已保存")
+
+                # 生成迭代助手回复
+                assistant_response = f"游戏迭代完成！\n\n基于您的要求：{iteration_request.iteration_prompt}\n\n{result.description}"
+
+                # 保存迭代对话
+                conversation_id, message_id = await history_service.create_new_game_message(
+                    conversation_id=iteration_request.session_id,
+                    user_prompt=iteration_request.iteration_prompt,
+                    game_data=game_data,
+                    usage=None
+                )
+
+                logger.info(f"💾 迭代对话历史已保存: conversation_id={conversation_id}, message_id={message_id}")
             except Exception as e:
-                logger.warning(f"⚠️  保存迭代历史失败: {str(e)}")
+                logger.warning(f"⚠️  保存迭代对话失败: {str(e)}")
             
             logger.info(f"🎉 游戏迭代完成!")
             return result
@@ -169,23 +218,23 @@ class GameService:
     def _build_iteration_prompt(
         self,
         iteration_request: GameIterationRequest,
-        base_game,
+        base_game_data: GameData,
         conversation_history
     ) -> str:
         """构建迭代提示词"""
         prompt_parts = []
-        
+
         # 基础信息
         prompt_parts.append("=== 游戏迭代需求 ===")
         prompt_parts.append(f"用户需求: {iteration_request.iteration_prompt}")
         prompt_parts.append("")
-        
+
         # 历史游戏信息
         prompt_parts.append("=== 基础游戏版本信息 ===")
-        prompt_parts.append(f"游戏标题: {base_game.game_title}")
-        prompt_parts.append(f"游戏类型: {base_game.game_type}")
-        prompt_parts.append(f"游戏逻辑: {base_game.game_logic}")
-        prompt_parts.append(f"游戏描述: {base_game.description}")
+        prompt_parts.append(f"游戏标题: {base_game_data.title}")
+        prompt_parts.append(f"游戏类型: {base_game_data.game_type}")
+        prompt_parts.append(f"游戏逻辑: {base_game_data.game_logic}")
+        prompt_parts.append(f"游戏描述: {base_game_data.description}")
         prompt_parts.append("")
         
         # 保留和修改的元素
@@ -204,8 +253,8 @@ class GameService:
             prompt_parts.append("=== 历史对话上下文 ===")
             recent_messages = conversation_history.messages[-5:]  # 最近5条
             for msg in recent_messages:
-                role = msg.get('role', 'unknown')
-                content = msg.get('content', '')
+                role = msg.role
+                content = msg.content
                 if len(content) > 200:
                     content = content[:200] + "..."
                 prompt_parts.append(f"{role}: {content}")

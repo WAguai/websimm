@@ -26,7 +26,7 @@ class ImageResourceAgent(BaseAgent):
             注意：当前使用占位图像，实际项目中可替换为真实资源。
             """
     
-    async def process(self, context: GameContext) -> GameContext:
+    async def process(self, context: GameContext, session_id: str = None) -> GameContext:
         """处理图像资源生成"""
         logger.info(f"🎨 {self.agent_name}: 开始生成图像资源...")
         
