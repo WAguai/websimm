@@ -34,9 +34,17 @@ class AudioResourceAgent(BaseAgent):
             if not context.game_logic:
                 raise ValueError("缺少游戏逻辑信息")
             
-            # 获取游戏信息
-            game_type = context.game_logic.game_type
-            game_elements = context.game_features.game_elements if context.game_features else []
+            # 优先使用新的结构化音频数据，否则回退到推断数据
+            if context.game_logic.audio:
+                logger.info("🔊 使用新的音频配置数据生成音频资源")
+                audio_data = context.game_logic.audio
+                game_type = context.game_logic.game_type
+                game_elements = self._extract_audio_elements_from_config(audio_data)
+            else:
+                logger.info("🔊 使用传统推断数据生成音频资源")
+                # 传统方式：从推断特征获取信息
+                game_type = context.game_logic.game_type
+                game_elements = context.game_features.game_elements if context.game_features else []
             
             # 使用高质量资源生成服务
             audio_resources = resource_generation_service.generate_audio_resources(
@@ -56,3 +64,25 @@ class AudioResourceAgent(BaseAgent):
         except Exception as e:
             logger.error(f"❌ {self.agent_name}: 处理失败 - {str(e)}")
             raise Exception(f"音频资源生成失败: {str(e)}")
+
+    def _extract_audio_elements_from_config(self, audio_data):
+        """从音频配置数据中提取音频元素"""
+        elements = []
+
+        # 从背景音乐配置提取元素
+        if audio_data.bgm:
+            if audio_data.bgm.mood:
+                elements.append(f"{audio_data.bgm.mood}背景音乐")
+
+        # 从音效配置提取元素
+        for sfx in audio_data.sfx:
+            if sfx.event:
+                elements.append(f"{sfx.event}音效")
+
+        # 添加基础音效类型
+        basic_elements = ["游戏音效", "环境音", "UI音效"]
+        for elem in basic_elements:
+            if elem not in elements:
+                elements.append(elem)
+
+        return elements if elements else ["基础游戏音效"]

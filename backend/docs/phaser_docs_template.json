@@ -1,0 +1,67 @@
+{
+  "documents": [
+    "Phaser.GameObjects.Sprite - 精灵对象\n精灵是带有纹理的显示对象，是游戏中最常用的对象。\n\n创建精灵:\nthis.add.sprite(x, y, 'texture_key');\n\n精灵属性:\nsprite.x = 100;  // X坐标\nsprite.y = 100;  // Y坐标\nsprite.scale = 2;  // 缩放\nsprite.angle = 45;  // 旋转角度\nsprite.alpha = 0.5;  // 透明度\nsprite.setOrigin(0.5, 0.5);  // 设置锚点\n\n精灵方法:\nsprite.setPosition(x, y);  // 设置位置\nsprite.setRotation(radians);  // 设置旋转\nsprite.setVisible(false);  // 隐藏/显示\nsprite.destroy();  // 销毁精灵\n\n交互:\nsprite.setInteractive();  // 启用交互\nsprite.on('pointerdown', () => {\n    console.log('Sprite clicked!');\n});",
+
+    "Phaser.Input.Keyboard - 键盘输入\n处理键盘输入事件。\n\n监听键盘事件:\nthis.input.keyboard.on('keydown', function(event) {\n    console.log(event.key);\n});\n\n创建按键对象:\nconst spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);\nconst wKey = this.input.keyboard.addKey('W');\n\n检查按键状态:\nif (spaceKey.isDown) {\n    // 空格键被按下\n}\n\n创建按键组:\nconst cursors = this.input.keyboard.createCursorKeys();\nif (cursors.left.isDown) {\n    player.x -= 5;\n}\nif (cursors.right.isDown) {\n    player.x += 5;\n}\nif (cursors.up.isDown) {\n    player.y -= 5;\n}\nif (cursors.down.isDown) {\n    player.y += 5;\n}\n\n监听特定按键:\nthis.input.keyboard.on('keydown-SPACE', () => {\n    console.log('Space pressed!');\n});",
+
+    "Phaser.Animations - 帧动画\n创建和管理精灵帧动画。\n\n创建动画:\nthis.anims.create({\n    key: 'walk',\n    frames: this.anims.generateFrameNumbers('player', { start: 0, end: 3 }),\n    frameRate: 10,\n    repeat: -1  // -1表示无限循环\n});\n\n播放动画:\nplayer.play('walk');\n\n停止动画:\nplayer.stop();\n\n动画事件:\nplayer.on('animationcomplete', (animation) => {\n    console.log('Animation complete:', animation.key);\n});\n\n从Texture Atlas创建动画:\nthis.anims.create({\n    key: 'run',\n    frames: this.anims.generateFrameNames('atlas', {\n        prefix: 'run_',\n        start: 1,\n        end: 8,\n        zeroPad: 2\n    }),\n    frameRate: 12,\n    repeat: -1\n});",
+
+    "Phaser.Tweens - 补间动画\n创建平滑的数值过渡动画。\n\n基础补间:\nthis.tweens.add({\n    targets: sprite,\n    x: 400,\n    y: 300,\n    duration: 2000,\n    ease: 'Power2'\n});\n\n多属性补间:\nthis.tweens.add({\n    targets: sprite,\n    x: 400,\n    y: 300,\n    alpha: 0.5,\n    scale: 2,\n    angle: 180,\n    duration: 2000,\n    ease: 'Bounce',\n    yoyo: true,  // 来回播放\n    repeat: -1  // 无限重复\n});\n\n补间回调:\nthis.tweens.add({\n    targets: sprite,\n    x: 400,\n    duration: 1000,\n    onStart: () => { console.log('开始'); },\n    onUpdate: () => { console.log('更新中'); },\n    onComplete: () => { console.log('完成'); }\n});\n\n补间链:\nthis.tweens.chain({\n    targets: sprite,\n    tweens: [\n        { x: 200, duration: 1000 },\n        { y: 200, duration: 1000 },\n        { x: 100, y: 100, duration: 1000 }\n    ]\n});",
+
+    "Phaser.Sound - 音频管理\n加载和播放游戏音频。\n\n加载音频:\nthis.load.audio('bgm', 'assets/music.mp3');\nthis.load.audio('jump', 'assets/jump.wav');\n\n播放音频:\nconst music = this.sound.add('bgm');\nmusic.play();\n\n控制音量:\nmusic.setVolume(0.5);  // 0到1之间\n\n循环播放:\nmusic.play({ loop: true });\n\n音频配置:\nconst sound = this.sound.add('jump', {\n    volume: 0.8,\n    loop: false,\n    delay: 0\n});\n\n停止音频:\nmusic.stop();\n\n暂停/恢复:\nmusic.pause();\nmusic.resume();\n\n音频事件:\nmusic.on('complete', () => {\n    console.log('音乐播放完成');\n});\n\n全局音量:\nthis.sound.setVolume(0.5);  // 设置所有音频的音量",
+
+    "Phaser.GameObjects.Graphics - 矢量图形\n绘制基本几何图形。\n\n创建Graphics对象:\nconst graphics = this.add.graphics();\n\n设置样式:\ngraphics.lineStyle(4, 0xff0000, 1);  // 线宽, 颜色, 透明度\ngraphics.fillStyle(0x00ff00, 0.5);  // 填充颜色, 透明度\n\n绘制矩形:\ngraphics.strokeRect(50, 50, 200, 100);  // 描边矩形\ngraphics.fillRect(50, 50, 200, 100);  // 填充矩形\n\n绘制圆形:\ngraphics.strokeCircle(400, 300, 50);  // 描边圆\ngraphics.fillCircle(400, 300, 50);  // 填充圆\n\n绘制线条:\ngraphics.moveTo(100, 100);\ngraphics.lineTo(200, 200);\ngraphics.strokePath();\n\n绘制多边形:\ngraphics.beginPath();\ngraphics.moveTo(100, 100);\ngraphics.lineTo(200, 150);\ngraphics.lineTo(150, 250);\ngraphics.closePath();\ngraphics.fillPath();\n\n清除图形:\ngraphics.clear();"
+  ],
+  "metadatas": [
+    {
+      "source": "phaser",
+      "api": "Sprite",
+      "category": "gameobjects",
+      "version": "3.x",
+      "difficulty": "beginner"
+    },
+    {
+      "source": "phaser",
+      "api": "Input.Keyboard",
+      "category": "input",
+      "version": "3.x",
+      "difficulty": "beginner"
+    },
+    {
+      "source": "phaser",
+      "api": "Animations",
+      "category": "animation",
+      "version": "3.x",
+      "difficulty": "intermediate"
+    },
+    {
+      "source": "phaser",
+      "api": "Tweens",
+      "category": "animation",
+      "version": "3.x",
+      "difficulty": "beginner"
+    },
+    {
+      "source": "phaser",
+      "api": "Sound",
+      "category": "audio",
+      "version": "3.x",
+      "difficulty": "beginner"
+    },
+    {
+      "source": "phaser",
+      "api": "Graphics",
+      "category": "gameobjects",
+      "version": "3.x",
+      "difficulty": "beginner"
+    }
+  ],
+  "ids": [
+    "phaser_sprite_v1",
+    "phaser_keyboard_v1",
+    "phaser_animations_v1",
+    "phaser_tweens_v1",
+    "phaser_sound_v1",
+    "phaser_graphics_v1"
+  ]
+}

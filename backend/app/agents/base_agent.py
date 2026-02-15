@@ -33,6 +33,14 @@ class BaseAgent(ABC):
         """更新上下文，添加当前agent到执行链"""
         context.add_to_chain(self.agent_name)
         return context
+
+    def add_usage_stats(self, context: GameContext, usage: Dict[str, Any]):
+        """添加当前Agent的token使用统计"""
+        if not context.metadata:
+            from ..models.context_models import ContextMetadata
+            context.metadata = ContextMetadata()
+        if usage:
+            context.metadata.add_usage_stats(self.agent_name, usage)
     
     @abstractmethod
     async def process(self, context: GameContext, session_id: str = None) -> GameContext:

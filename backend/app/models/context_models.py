@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from datetime import datetime
 from .game_models import GameLogicResult, GameFiles
 
@@ -15,6 +15,13 @@ class ContextMetadata(BaseModel):
     timestamp: datetime = datetime.now()
     agent_chain: List[str] = []
     version: str = "1.0"
+    usage_stats: Optional[Dict[str, Dict[str, Any]]] = None  # 各Agent的token使用统计
+
+    def add_usage_stats(self, agent_name: str, usage: Dict[str, Any]):
+        """添加Agent的token使用统计"""
+        if not self.usage_stats:
+            self.usage_stats = {}
+        self.usage_stats[agent_name] = usage
 
 
 class GameContext(BaseModel):
@@ -25,6 +32,8 @@ class GameContext(BaseModel):
     audio_resources: Optional[List[str]] = None
     files: Optional[GameFiles] = None
     metadata: Optional[ContextMetadata] = None
+    enhanced_prompt: Optional[str] = None  # FileGenerateAgent 的增强提示词
+    rag_enhanced_prompt: Optional[str] = None  # RAG Agent 检索到的API文档
     
     def add_to_chain(self, agent_name: str):
         """添加agent到执行链中"""

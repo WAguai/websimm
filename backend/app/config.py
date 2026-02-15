@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     anthropic_base_url: str = "https://api.anthropic.com"
     
     # 服务配置
-    host: str = "0.0.0.0"
+    host: str = "127.0.0.1"
     port: int = 8000
     debug: bool = True  
     

@@ -1,33 +1,48 @@
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from pydantic import BaseModel, Field, field_serializer
+from typing import List, Optional, Dict, Any, Annotated
 from datetime import datetime
 from bson import ObjectId
+from pydantic_core import core_schema
+from pydantic import GetCoreSchemaHandler
 
 
-class PyObjectId(ObjectId):
-    """MongoDB ObjectId的Pydantic兼容版本"""
+class PyObjectId(str):
+    """MongoDB ObjectId的Pydantic兼容版本 - 简化为字符串"""
+
     @classmethod
     def __get_pydantic_core_schema__(
-        cls, _source_type: Any, _handler: Any
-    ) -> Any:
-        from pydantic_core import core_schema
-        return core_schema.no_info_plain_validator_function(cls.validate)
+        cls,
+        _source_type: Any,
+        _handler: GetCoreSchemaHandler
+    ) -> core_schema.CoreSchema:
+        """Pydantic v2 schema定义"""
+        return core_schema.union_schema([
+            core_schema.is_instance_schema(ObjectId),
+            core_schema.no_info_plain_validator_function(
+                cls._validate,
+                serialization=core_schema.plain_serializer_function_ser_schema(
+                    lambda x: str(x)
+                )
+            ),
+        ])
 
     @classmethod
-    def validate(cls, v):
-        if not ObjectId.is_valid(v):
-            raise ValueError('Invalid objectid')
-        return ObjectId(v)
-
-    @classmethod
-    def __get_pydantic_json_schema__(cls, field_schema):
-        field_schema.update(type='string')
+    def _validate(cls, v):
+        """验证ObjectId"""
+        if isinstance(v, ObjectId):
+            return str(v)
+        if isinstance(v, str):
+            if ObjectId.is_valid(v):
+                return v
+            raise ValueError('Invalid ObjectId')
+        raise ValueError('Invalid ObjectId type')
 
 
 
 
 class GameData(BaseModel):
-    """游戏数据"""
+    """游戏数据 - 兼容新旧数据格式"""
+    # ===== 向后兼容：保持原有基础字段 =====
     title: str = Field(..., description="游戏标题")
     game_type: str = Field(..., description="游戏类型")
     game_logic: str = Field(..., description="游戏逻辑")
@@ -37,6 +52,22 @@ class GameData(BaseModel):
     audio_resources: List[str] = Field(default=[], description="音频资源列表")
     agent_chain: List[str] = Field(default=[], description="Agent执行链")
     generation_time: datetime = Field(default_factory=datetime.utcnow, description="生成时间")
+
+    # ===== 新增：详细结构化数据字段（可选，存储完整的GameLogicResult） =====
+    structured_game_logic: Optional[Dict[str, Any]] = Field(None, description="详细结构化游戏逻辑数据")
+    target_audience: Optional[str] = Field(None, description="目标玩家群体")
+    difficulty: Optional[str] = Field(None, description="难度等级")
+    core_mechanics: Optional[List[str]] = Field(None, description="核心机制")
+    notes_for_dev: Optional[str] = Field(None, description="开发注意事项")
+    examples: Optional[List[str]] = Field(None, description="玩法变体示例")
+
+    # ===== 扩展字段，存储增强提示词等信息 =====
+    enhanced_prompt: Optional[str] = Field(None, description="发送给FileGenerateAgent的增强提示词")
+    usage_stats: Optional[Dict[str, Any]] = Field(None, description="各Agent的token使用统计")
+
+    # ===== RAG相关字段 =====
+    rag_enhanced_prompt: Optional[str] = Field(None, description="RAG检索到的API文档和资源")
+    dev_guidance: Optional[str] = Field(None, description="GameLogicAgent为FileGenerateAgent提供的开发指导意见")
 
 
 class ConversationMessage(BaseModel):

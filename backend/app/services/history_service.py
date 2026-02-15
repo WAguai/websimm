@@ -124,6 +124,19 @@ class HistoryService:
         try:
             message_id = str(uuid.uuid4())
 
+            # 验证GameData中的RAG字段
+            logger.info("=" * 50)
+            logger.info("📥 HistoryService收到GameData:")
+            logger.info(f"  - rag_enhanced_prompt: {'✅ 存在' if game_data.rag_enhanced_prompt else '❌ 为空'}")
+            logger.info(f"  - dev_guidance: {'✅ 存在' if game_data.dev_guidance else '❌ 为空'}")
+            if game_data.rag_enhanced_prompt:
+                logger.info(f"  - rag_enhanced_prompt长度: {len(game_data.rag_enhanced_prompt)}")
+                logger.info(f"  - rag_enhanced_prompt预览: {game_data.rag_enhanced_prompt[:100]}...")
+            if game_data.dev_guidance:
+                logger.info(f"  - dev_guidance长度: {len(game_data.dev_guidance)}")
+                logger.info(f"  - dev_guidance预览: {game_data.dev_guidance[:100]}...")
+            logger.info("=" * 50)
+
             # 创建消息
             message = ConversationMessage(
                 message_id=message_id,
@@ -143,23 +156,43 @@ class HistoryService:
             if not conversation:
                 # 创建新对话
                 title = game_data.title if game_data else user_prompt[:50] + ("..." if len(user_prompt) > 50 else "")
+                message_dict = message.dict()
+
+                # 验证message.dict()中是否包含RAG字段
+                logger.info("📝 准备保存到MongoDB的message数据:")
+                if message_dict.get("game_data"):
+                    gd = message_dict["game_data"]
+                    logger.info(f"  - rag_enhanced_prompt: {'✅ 存在' if gd.get('rag_enhanced_prompt') else '❌ 为空'}")
+                    logger.info(f"  - dev_guidance: {'✅ 存在' if gd.get('dev_guidance') else '❌ 为空'}")
+
                 conversation_data = {
                     "conversation_id": conversation_id,
                     "title": title,
-                    "messages": [message.dict()],
+                    "messages": [message_dict],
                     "created_at": datetime.utcnow(),
                     "updated_at": datetime.utcnow()
                 }
                 await self.conversations_collection.insert_one(conversation_data)
+                logger.info("✅ 新对话已插入MongoDB")
             else:
                 # 添加消息到现有对话
+                message_dict = message.dict()
+
+                # 验证message.dict()中是否包含RAG字段
+                logger.info("📝 准备更新到MongoDB的message数据:")
+                if message_dict.get("game_data"):
+                    gd = message_dict["game_data"]
+                    logger.info(f"  - rag_enhanced_prompt: {'✅ 存在' if gd.get('rag_enhanced_prompt') else '❌ 为空'}")
+                    logger.info(f"  - dev_guidance: {'✅ 存在' if gd.get('dev_guidance') else '❌ 为空'}")
+
                 await self.conversations_collection.update_one(
                     {"conversation_id": conversation_id},
                     {
-                        "$push": {"messages": message.dict()},
+                        "$push": {"messages": message_dict},
                         "$set": {"updated_at": datetime.utcnow()}
                     }
                 )
+                logger.info("✅ 消息已添加到现有对话")
 
             logger.info(f"✅ 游戏消息已创建: conversation_id={conversation_id}, message_id={message_id}")
             return conversation_id, message_id

@@ -5,7 +5,9 @@ from ..agents.game_logic_agent import GameLogicAgent
 from ..agents.file_generate_agent import FileGenerateAgent
 from ..agents.image_resource_agent import ImageResourceAgent
 from ..agents.audio_resource_agent import AudioResourceAgent
+from ..agents.rag_agent import RAGAgent
 from ..services.history_service import history_service
+from ..services.rag_service import get_rag_service
 
 import logging
 from typing import List, Dict, Optional
@@ -16,12 +18,30 @@ logger = logging.getLogger(__name__)
 
 class GameService:
     """游戏生成服务 - 协调多个Agent协作"""
-    
-    def __init__(self):
+
+    def __init__(self, enable_rag: bool = True):
+        """
+        初始化游戏服务
+
+        Args:
+            enable_rag: 是否启用RAG增强（默认True）
+        """
         self.game_logic_agent = GameLogicAgent()
         self.file_generate_agent = FileGenerateAgent()
         self.image_resource_agent = ImageResourceAgent()
         self.audio_resource_agent = AudioResourceAgent()
+
+        # RAG支持
+        self.enable_rag = enable_rag
+        self.rag_agent = None
+        if enable_rag:
+            try:
+                from ..services.ai_client import ai_client
+                self.rag_agent = RAGAgent(ai_client)
+                logger.info("✅ RAG Agent已初始化")
+            except Exception as e:
+                logger.warning(f"⚠️  RAG Agent初始化失败，将不使用RAG: {str(e)}")
+                self.enable_rag = False
     
     async def generate_game(
         self,
@@ -54,7 +74,39 @@ class GameService:
                 user_prompt=prompt,
                 metadata=ContextMetadata()
             )
-            
+
+            # 0. 🔍 RAG检索增强（如果启用）
+            enhanced_prompt = prompt
+            if self.enable_rag and self.rag_agent:
+                logger.info("=" * 50)
+                logger.info("🔍 RAG Agent - 检索相关API文档")
+                try:
+                    # 检索相关文档
+                    rag_result = await self.rag_agent.retrieve_for_prompt(
+                        query=prompt,
+                        n_results=3
+                    )
+
+                    if rag_result:
+                        # 增强提示词
+                        enhanced_prompt = f"""{prompt}
+
+{rag_result}
+
+请参考以上API文档和资料来设计游戏。确保使用正确的API和最佳实践。
+"""
+                        # 保存RAG检索结果到上下文（用于MongoDB存储）
+                        context.rag_enhanced_prompt = rag_result
+                        context.metadata.agent_chain.append("RAGAgent")
+                        logger.info(f"✅ RAG增强完成，检索到相关文档")
+                    else:
+                        logger.info("ℹ️  未检索到相关文档，使用原始提示词")
+                except Exception as e:
+                    logger.warning(f"⚠️  RAG检索失败: {str(e)}，使用原始提示词")
+
+            # 更新上下文中的用户提示词
+            context.user_prompt = enhanced_prompt
+
             # 1. 🎮 游戏逻辑 Agent 处理
             logger.info("=" * 50)
             context = await self.game_logic_agent.process(context, session_id)
@@ -85,8 +137,46 @@ class GameService:
             # 保存历史记录
             if save_to_history:
                 try:
-                    # 创建游戏数据对象
+                    # 构建完整的结构化数据字典（用于存储到MongoDB）
+                    structured_game_logic = None
+                    if hasattr(context.game_logic, '__dict__'):
+                        # 将完整的 GameLogicResult 对象转换为字典
+                        structured_game_logic = {
+                            key: value for key, value in context.game_logic.__dict__.items()
+                            if key not in ['title', 'description', 'game_logic', 'game_type']  # 排除基础字段避免重复
+                        }
+
+                    # 获取增强提示词（如果有的话）
+                    enhanced_prompt = None
+                    if hasattr(context, 'enhanced_prompt'):
+                        enhanced_prompt = context.enhanced_prompt
+
+                    # 获取RAG增强提示词
+                    rag_enhanced_prompt = None
+                    if hasattr(context, 'rag_enhanced_prompt'):
+                        rag_enhanced_prompt = context.rag_enhanced_prompt
+                        logger.info(f"✅ 从context获取到rag_enhanced_prompt，长度: {len(rag_enhanced_prompt) if rag_enhanced_prompt else 0}")
+                    # 如果在第一步RAG检索中保存了rag_result，也保存
+                    elif hasattr(context, 'enhanced_prompt') and '=== 相关API文档和参考资料 ===' in str(context.enhanced_prompt):
+                        # 提取RAG部分
+                        rag_part_start = str(context.enhanced_prompt).find('=== 相关API文档和参考资料 ===')
+                        if rag_part_start > 0:
+                            rag_enhanced_prompt = str(context.enhanced_prompt)[rag_part_start:]
+                            logger.info(f"✅ 从enhanced_prompt中提取到rag_enhanced_prompt，长度: {len(rag_enhanced_prompt)}")
+                    else:
+                        logger.warning("⚠️  未找到rag_enhanced_prompt")
+
+                    # 获取开发指导意见
+                    dev_guidance = getattr(context.game_logic, 'dev_guidance', None)
+                    if dev_guidance:
+                        logger.info(f"✅ 获取到dev_guidance，长度: {len(dev_guidance)}")
+                        logger.info(f"📝 dev_guidance内容预览: {dev_guidance[:200]}...")
+                    else:
+                        logger.warning("⚠️  未找到dev_guidance")
+
+                    # 创建游戏数据对象（包含新的结构化数据）
                     game_data = GameData(
+                        # 基础字段（向后兼容）
                         title=context.game_logic.title,
                         game_type=context.game_logic.game_type,
                         game_logic=context.game_logic.game_logic,
@@ -94,8 +184,33 @@ class GameService:
                         html_content=context.files.html,
                         image_resources=context.image_resources,
                         audio_resources=context.audio_resources,
-                        agent_chain=context.metadata.agent_chain
+                        agent_chain=context.metadata.agent_chain,
+
+                        # 新的结构化数据字段
+                        structured_game_logic=structured_game_logic,
+                        target_audience=getattr(context.game_logic, 'target_audience', None),
+                        difficulty=getattr(context.game_logic, 'difficulty', None),
+                        core_mechanics=getattr(context.game_logic, 'core_mechanics', None),
+                        notes_for_dev=getattr(context.game_logic, 'notes_for_dev', None),
+                        examples=getattr(context.game_logic, 'examples', None),
+                        enhanced_prompt=enhanced_prompt,
+                        usage_stats=context.metadata.usage_stats if hasattr(context.metadata, 'usage_stats') else None,
+
+                        # RAG相关字段
+                        rag_enhanced_prompt=rag_enhanced_prompt,
+                        dev_guidance=dev_guidance
                     )
+
+                    # 验证GameData对象中是否包含RAG字段
+                    logger.info("=" * 50)
+                    logger.info("📦 GameData对象已创建，验证RAG字段:")
+                    logger.info(f"  - rag_enhanced_prompt: {'✅ 存在' if game_data.rag_enhanced_prompt else '❌ 为空'}")
+                    logger.info(f"  - dev_guidance: {'✅ 存在' if game_data.dev_guidance else '❌ 为空'}")
+                    if game_data.rag_enhanced_prompt:
+                        logger.info(f"  - rag_enhanced_prompt长度: {len(game_data.rag_enhanced_prompt)}")
+                    if game_data.dev_guidance:
+                        logger.info(f"  - dev_guidance长度: {len(game_data.dev_guidance)}")
+                    logger.info("=" * 50)
 
                     # 生成助手回复内容
                     assistant_response = f"游戏已生成完成！\n\n游戏标题：{context.game_logic.title}\n游戏类型：{context.game_logic.game_type}\n\n{context.game_logic.description}"

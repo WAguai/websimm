@@ -34,10 +34,19 @@ class ImageResourceAgent(BaseAgent):
             if not context.game_logic:
                 raise ValueError("缺少游戏逻辑信息")
             
-            # 获取游戏信息
-            game_type = context.game_logic.game_type
-            visual_style = context.game_features.visual_style if context.game_features else "现代风格"
-            game_elements = context.game_features.game_elements if context.game_features else []
+            # 优先使用新的结构化美术数据，否则回退到推断数据
+            if context.game_logic.art:
+                logger.info("🎨 使用新的美术配置数据生成图像资源")
+                art_data = context.game_logic.art
+                game_type = context.game_logic.game_type
+                visual_style = f"{art_data.theme}_{art_data.artStyle}" if art_data.theme and art_data.artStyle else art_data.artStyle or "现代风格"
+                game_elements = self._extract_elements_from_art_data(art_data)
+            else:
+                logger.info("🎨 使用传统推断数据生成图像资源")
+                # 传统方式：从推断特征获取信息
+                game_type = context.game_logic.game_type
+                visual_style = context.game_features.visual_style if context.game_features else "现代风格"
+                game_elements = context.game_features.game_elements if context.game_features else []
             
             # 使用高质量资源生成服务
             image_resources = resource_generation_service.generate_game_images(
@@ -58,3 +67,29 @@ class ImageResourceAgent(BaseAgent):
         except Exception as e:
             logger.error(f"❌ {self.agent_name}: 处理失败 - {str(e)}")
             raise Exception(f"图像资源生成失败: {str(e)}")
+
+    def _extract_elements_from_art_data(self, art_data):
+        """从美术数据中提取游戏元素"""
+        elements = []
+
+        # 从requiredAssets中提取元素类型
+        for asset in art_data.requiredAssets:
+            if asset.type == "sprite" and asset.name not in elements:
+                elements.append(asset.name)
+            elif asset.type == "image" and asset.name not in elements:
+                elements.append(asset.name)
+
+        # 添加基于主题的通用元素
+        theme_elements = {
+            "像素": ["像素角色", "像素环境"],
+            "卡通": ["卡通角色", "卡通背景"],
+            "科幻": ["科幻道具", "未来场景"],
+            "复古": ["复古元素", "怀旧风格"]
+        }
+
+        for theme_key, theme_items in theme_elements.items():
+            if theme_key in art_data.theme:
+                elements.extend(theme_items)
+                break
+
+        return elements if elements else ["基础游戏元素"]

@@ -26,33 +26,24 @@ async def generate_new_game(request: NewGameRequest):
     try:
         conversation_id = str(uuid.uuid4())
 
-        # 调用游戏生成服务
+        # 调用游戏生成服务（现在自动保存到历史，包括RAG数据）
         result = await game_service.generate_game(
             prompt=request.user_prompt,
             session_id=conversation_id,
-            save_to_history=False
+            save_to_history=True  # ✅ 改为 True，让 game_service 处理所有保存逻辑
         )
 
-        # 创建游戏数据
-        from ..models.history_models import GameData
-        game_data = GameData(
-            title=result.title,
-            game_type=result.game_type,
-            game_logic=result.game_logic,
-            description=result.description,
-            html_content=result.files.html if result.files else "",
-            image_resources=result.image_resources,
-            audio_resources=result.audio_resources,
-            agent_chain=["GameLogicAgent", "FileGenerateAgent", "ImageResourceAgent", "AudioResourceAgent"]
-        )
+        # game_service 已经保存了完整的数据（包括 rag_enhanced_prompt 和 dev_guidance）
+        # 现在我们只需要返回结果
 
-        # 保存到历史记录
-        conversation_id, message_id = await history_service.create_new_game_message(
-            conversation_id=conversation_id,
-            user_prompt=request.user_prompt,
-            game_data=game_data,
-            usage=None
-        )
+        # 从保存的数据中获取 message_id
+        # 由于 game_service 已经保存，我们需要从最新的消息中获取
+        conversation = await history_service.get_conversation_by_id(conversation_id)
+        latest_message = conversation.messages[-1] if conversation and conversation.messages else None
+        message_id = latest_message.message_id if latest_message else str(uuid.uuid4())
+
+        # 构建返回的 game_data（从保存的数据中获取）
+        game_data = latest_message.game_data if latest_message and latest_message.game_data else None
 
         return GameGenerationResponse(
             conversation_id=conversation_id,
@@ -77,38 +68,26 @@ async def generate_history_based_game(request: HistoryBasedGameRequest):
             user_prompt=request.user_prompt
         )
 
-        # 调用游戏生成服务
+        # 调用游戏生成服务（现在自动保存到历史，包括RAG数据）
         result = await game_service.generate_game(
             prompt=history_enhanced_prompt,
             session_id=request.conversation_id,
-            save_to_history=False
+            save_to_history=True  # ✅ 改为 True，让 game_service 处理所有保存逻辑
         )
 
-        # 创建游戏数据
-        from ..models.history_models import GameData
-        game_data = GameData(
-            title=result.title,
-            game_type=result.game_type,
-            game_logic=result.game_logic,
-            description=result.description,
-            html_content=result.files.html if result.files else "",
-            image_resources=result.image_resources,
-            audio_resources=result.audio_resources,
-            agent_chain=["GameLogicAgent", "FileGenerateAgent", "ImageResourceAgent", "AudioResourceAgent"]
-        )
+        # game_service 已经保存了完整的数据（包括 rag_enhanced_prompt 和 dev_guidance）
+        # 现在我们只需要返回结果
 
-        # 保存到历史记录
-        conversation_id, message_id = await history_service.create_new_game_message(
-            conversation_id=request.conversation_id,
-            user_prompt=request.user_prompt,
-            game_data=game_data,
-            parent_message_id=request.parent_message_id,
-            history_enhanced_prompt=history_enhanced_prompt,
-            usage=None
-        )
+        # 从保存的数据中获取最新的 message_id
+        conversation = await history_service.get_conversation_by_id(request.conversation_id)
+        latest_message = conversation.messages[-1] if conversation and conversation.messages else None
+        message_id = latest_message.message_id if latest_message else str(uuid.uuid4())
+
+        # 构建返回的 game_data（从保存的数据中获取）
+        game_data = latest_message.game_data if latest_message and latest_message.game_data else None
 
         return GameGenerationResponse(
-            conversation_id=conversation_id,
+            conversation_id=request.conversation_id,
             message_id=message_id,
             game_data=game_data,
             usage=None
