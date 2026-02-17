@@ -261,7 +261,7 @@ def get_rag_service(
     if _rag_service is None:
         if api_key is None:
             from ..config import settings
-            api_key = settings.anthropic_api_key
+            api_key = settings.anthropic_api_key or "dummy"  # RAG 使用 simple_embedding，不实际调用 Anthropic
 
         _rag_service = RAGService(
             api_key=api_key,

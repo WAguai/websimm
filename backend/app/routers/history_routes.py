@@ -30,7 +30,8 @@ async def generate_new_game(request: NewGameRequest):
         result = await game_service.generate_game(
             prompt=request.user_prompt,
             session_id=conversation_id,
-            save_to_history=True  # ✅ 改为 True，让 game_service 处理所有保存逻辑
+            save_to_history=True,
+            model=request.model
         )
 
         # game_service 已经保存了完整的数据（包括 rag_enhanced_prompt 和 dev_guidance）
@@ -72,7 +73,8 @@ async def generate_history_based_game(request: HistoryBasedGameRequest):
         result = await game_service.generate_game(
             prompt=history_enhanced_prompt,
             session_id=request.conversation_id,
-            save_to_history=True  # ✅ 改为 True，让 game_service 处理所有保存逻辑
+            save_to_history=True,
+            model=request.model
         )
 
         # game_service 已经保存了完整的数据（包括 rag_enhanced_prompt 和 dev_guidance）

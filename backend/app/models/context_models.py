@@ -26,6 +26,7 @@ class ContextMetadata(BaseModel):
 
 class GameContext(BaseModel):
     user_prompt: str
+    model: Optional[str] = None  # 模型ID，如 kimi-k2-turbo-preview
     game_logic: Optional[GameLogicResult] = None
     game_features: Optional[GameFeatures] = None
     image_resources: Optional[List[str]] = None

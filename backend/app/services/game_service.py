@@ -48,7 +48,8 @@ class GameService:
         prompt: str,
         session_id: Optional[str] = None,
         context_messages: List[Dict] = None,
-        save_to_history: bool = True
+        save_to_history: bool = True,
+        model: Optional[str] = None
     ) -> GameGenerationResult:
         """
         多代理协作生成游戏
@@ -72,6 +73,7 @@ class GameService:
             # 初始化上下文
             context = GameContext(
                 user_prompt=prompt,
+                model=model,
                 metadata=ContextMetadata()
             )
 

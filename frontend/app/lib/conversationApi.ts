@@ -6,12 +6,20 @@ import {
   NewGameRequest,
   NewGameResponse,
   HistoryBasedGameRequest,
-  HistoryBasedGameResponse
+  HistoryBasedGameResponse,
+  ModelInfo
 } from '../types'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000'
 
 export class ConversationApi {
+  // 0. 获取可用模型列表
+  static async getModels(): Promise<{ models: ModelInfo[]; default: string }> {
+    const response = await fetch(`${API_BASE_URL}/api/game/models`)
+    if (!response.ok) throw new Error('Failed to fetch models')
+    return response.json()
+  }
+
   // 1. 创建新游戏对话
   static async createNewGame(request: NewGameRequest): Promise<NewGameResponse> {
     const response = await fetch(`${API_BASE_URL}/api/game/new`, {

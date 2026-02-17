@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import GamePreview from './components/GamePreview'
 import ChatHistory from './components/ChatHistory'
 import ChatInput from './components/ChatInput'
@@ -8,9 +8,11 @@ import BackendHealthCheck from './components/BackendHealthCheck'
 import ResizablePanels from './components/ResizablePanels'
 import ConversationModal from './components/ConversationModal'
 import { ConversationApi } from './lib/conversationApi'
-import { Message, GameVersion, ConversationSummary, BackendMessage, NewGameResponse, HistoryBasedGameResponse } from './types'
+import { Message, GameVersion, ConversationSummary, BackendMessage, NewGameResponse, HistoryBasedGameResponse, ModelInfo } from './types'
 export default function Home() {
   const [messages, setMessages] = useState<Message[]>([])
+  const [models, setModels] = useState<ModelInfo[]>([])
+  const [selectedModel, setSelectedModel] = useState<string>('')
   const [gameVersions, setGameVersions] = useState<GameVersion[]>([])
   const [currentGameIndex, setCurrentGameIndex] = useState<number>(-1)
   const [isGenerating, setIsGenerating] = useState(false)
@@ -19,6 +21,15 @@ export default function Home() {
   const [showConversationModal, setShowConversationModal] = useState(false)
   const requestInProgress = useRef(false)  // 防止重复请求
 
+  // 加载可用模型列表
+  useEffect(() => {
+    ConversationApi.getModels()
+      .then(({ models: m, default: d }) => {
+        setModels(m)
+        setSelectedModel(d || (m[0]?.id ?? ''))
+      })
+      .catch(console.error)
+  }, [])
 
   const handleSendMessage = async (content: string) => {
     // 防止重复请求
@@ -46,7 +57,7 @@ export default function Home() {
 
       if (!currentConversationId || !currentParentMessageId) {
         // 新游戏对话
-        gameResponse = await ConversationApi.createNewGame({ user_prompt: content })
+        gameResponse = await ConversationApi.createNewGame({ user_prompt: content, model: selectedModel || undefined })
 
         // 更新对话状态
         setCurrentConversationId(gameResponse.conversation_id)
@@ -56,7 +67,8 @@ export default function Home() {
         gameResponse = await ConversationApi.createHistoryBasedGame({
           conversation_id: currentConversationId,
           parent_message_id: currentParentMessageId,
-          user_prompt: content
+          user_prompt: content,
+          model: selectedModel || undefined
         })
 
         // 更新父消息ID
@@ -219,6 +231,9 @@ export default function Home() {
                 onSendMessage={handleSendMessage}
                 isGenerating={isGenerating}
                 onOpenConversations={handleOpenConversations}
+                models={models}
+                selectedModel={selectedModel}
+                onModelChange={setSelectedModel}
               />
             </div>
           }

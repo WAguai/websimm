@@ -1,16 +1,21 @@
 'use client'
 
 import { useState, KeyboardEvent } from 'react'
-import { Send, Loader2, MessageSquare } from 'lucide-react'
+import { Send, Loader2, MessageSquare, ChevronDown } from 'lucide-react'
+import { ModelInfo } from '../types'
 
 interface ChatInputProps {
   onSendMessage: (message: string) => void
   isGenerating: boolean
   onOpenConversations: () => void
+  models?: ModelInfo[]
+  selectedModel?: string
+  onModelChange?: (modelId: string) => void
 }
 
-export default function ChatInput({ onSendMessage, isGenerating, onOpenConversations }: ChatInputProps) {
+export default function ChatInput({ onSendMessage, isGenerating, onOpenConversations, models = [], selectedModel = '', onModelChange }: ChatInputProps) {
   const [input, setInput] = useState('')
+  const [showModelDropdown, setShowModelDropdown] = useState(false)
 
   const handleSend = () => {
     if (input.trim() && !isGenerating) {
@@ -93,18 +98,39 @@ export default function ChatInput({ onSendMessage, isGenerating, onOpenConversat
 
       {/* 底部模型选择 */}
       <div className="px-4 pb-4 flex items-center justify-between text-sm">
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 relative">
           <div className="w-4 h-4 bg-blue-500 rounded flex items-center justify-center">
-            <span className="text-xs text-white">A</span>
+            <span className="text-xs text-white">AI</span>
           </div>
-          <span className="text-gray-300">Gemini 2.5 Pro</span>
-          <button className="text-gray-500 hover:text-gray-300">
-            <span className="text-xs">^</span>
-          </button>
-        </div>
-        <div className="flex items-center space-x-2 text-gray-500">
-          <span className="text-xs">🌐</span>
-          <span className="text-xs">Public</span>
+          {models.length > 0 ? (
+            <div className="relative">
+              <button
+                onClick={() => setShowModelDropdown(!showModelDropdown)}
+                className="flex items-center space-x-1 text-gray-300 hover:text-white px-2 py-1 rounded hover:bg-gray-700 transition-colors"
+              >
+                <span>{models.find(m => m.id === selectedModel)?.name || selectedModel || '选择模型'}</span>
+                <ChevronDown size={12} className={showModelDropdown ? 'rotate-180' : ''} />
+              </button>
+              {showModelDropdown && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowModelDropdown(false)} />
+                  <div className="absolute bottom-full left-0 mb-1 py-1 bg-gray-800 border border-gray-600 rounded-lg shadow-lg z-20 min-w-[180px]">
+                    {models.map((m) => (
+                      <button
+                        key={m.id}
+                        onClick={() => { onModelChange?.(m.id); setShowModelDropdown(false) }}
+                        className={`w-full text-left px-3 py-2 text-sm hover:bg-gray-700 ${m.id === selectedModel ? 'text-blue-400 bg-gray-700/50' : 'text-gray-300'}`}
+                      >
+                        {m.name}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          ) : (
+            <span className="text-gray-500">加载模型...</span>
+          )}
         </div>
       </div>
     </div>

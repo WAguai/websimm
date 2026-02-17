@@ -138,6 +138,7 @@ class ConversationUpdateRequest(BaseModel):
 class NewGameRequest(BaseModel):
     """新游戏生成请求"""
     user_prompt: str = Field(..., description="用户输入")
+    model: Optional[str] = Field(None, description="模型ID，如 kimi-k2-turbo-preview")
 
 
 class HistoryBasedGameRequest(BaseModel):
@@ -145,6 +146,7 @@ class HistoryBasedGameRequest(BaseModel):
     conversation_id: str = Field(..., description="对话ID")
     parent_message_id: str = Field(..., description="父消息ID")
     user_prompt: str = Field(..., description="用户输入")
+    model: Optional[str] = Field(None, description="模型ID，如 kimi-k2-turbo-preview")
 
 
 class GameGenerationResponse(BaseModel):

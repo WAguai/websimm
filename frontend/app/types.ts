@@ -78,9 +78,17 @@ export interface ConversationFull {
   updated_at: string
 }
 
+// 可用模型
+export interface ModelInfo {
+  id: string
+  name: string
+  provider: string
+}
+
 // 创建新游戏请求
 export interface NewGameRequest {
   user_prompt: string
+  model?: string
 }
 
 // 创建新游戏响应
@@ -96,6 +104,7 @@ export interface HistoryBasedGameRequest {
   conversation_id: string
   parent_message_id: string
   user_prompt: string
+  model?: string
 }
 
 // 基于历史的游戏生成响应

@@ -190,12 +190,17 @@ class GameLogicAgent(BaseAgent):
 
         except Exception as e:
             logger.warning(f"解析新格式失败，尝试兼容旧格式: {str(e)}")
-            # 回退到旧格式解析
+            # 回退到旧格式解析（保证 game_logic 一定是字符串）
+            game_logic_raw = game_data.get("gameLogic", "")
+            if isinstance(game_logic_raw, dict):
+                # 从详细结构中提取一段简要描述，避免把整个 dict 丢给字符串字段
+                game_logic_raw = self._extract_simple_game_logic(game_logic_raw)
+
             return GameLogicResult(
                 title=game_data.get("title", ""),
                 description=game_data.get("description", ""),
                 game_type=game_data.get("gameType", ""),
-                game_logic=game_data.get("gameLogic", "")
+                game_logic=str(game_logic_raw)
             )
 
     def _extract_simple_game_logic(self, detailed_logic: dict) -> str:
@@ -216,7 +221,8 @@ class GameLogicAgent(BaseAgent):
             powerups.append(PowerUp(
                 id=pu.get("id", ""),
                 effect=pu.get("effect", ""),
-                spawnRate=pu.get("spawnRate", "")
+                # Kimi 有时会返回数值型概率，这里统一转成字符串，避免 Pydantic 校验错误
+                spawnRate=str(pu.get("spawnRate", ""))
             ))
 
         return DetailedGameLogic(
@@ -447,7 +453,8 @@ class GameLogicAgent(BaseAgent):
             response = await self.ai_client.get_game_logic(
                 self.system_message,
                 context.user_prompt,
-                previous_chat_id=session_id
+                previous_chat_id=session_id,
+                model=context.model
             )
             
             # 解析响应

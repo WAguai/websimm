@@ -397,7 +397,8 @@ class FileGenerateAgent(BaseAgent):
             print("file enhanced_prompt",final_prompt[:500])
             response = await self.ai_client.get_game_files(
                 self.system_message,
-                final_prompt
+                final_prompt,
+                model=context.model
             )
             print("file",response)
 
@@ -407,8 +408,8 @@ class FileGenerateAgent(BaseAgent):
             if response.get('usage'):
                 self.add_usage_stats(context, response['usage'])
 
-            # 解析响应
-            files_data = self.extract_json_code_block(response["content"])
+            # 解析响应（兼容 JSON 和 ```html``` 两种格式）
+            files_data = self.extract_html_file_block(response["content"])
 
             # 创建游戏文件（只包含HTML）
             game_files = GameFiles(

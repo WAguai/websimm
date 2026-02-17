@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Query
 from ..models.game_models import GameGenerationRequest, GameGenerationResponse
 from ..models.history_models import GameIterationRequest
 from ..services.game_service import game_service
+from ..config import settings
 import logging
 from datetime import datetime
 from typing import Optional
@@ -9,6 +10,12 @@ from typing import Optional
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/game", tags=["game"])
+
+
+@router.get("/models")
+async def get_available_models():
+    """获取可用的 AI 模型列表，供前端模型选择器使用"""
+    return {"models": settings.get_available_models(), "default": settings.default_model}
 
 
 @router.post("/generate", response_model=GameGenerationResponse)
