@@ -1,11 +1,13 @@
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from ..models.game_models import GameGenerationRequest, GameGenerationResponse
 from ..models.history_models import GameIterationRequest
 from ..services.game_service import game_service
 from ..config import settings
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import Optional, AsyncGenerator
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +56,51 @@ async def generate_game(
             error=str(e),
             timestamp=datetime.now()
         )
+
+
+@router.post("/generate/stream")
+async def generate_game_stream(
+    request: GameGenerationRequest,
+    session_id: Optional[str] = Query(None, description="会话ID，用于历史记录关联"),
+):
+    """
+    流式生成游戏接口（SSE）
+
+    注意：目前按阶段推送事件（start/result/error），后续可细化到每个Agent或token级别
+    """
+
+    async def event_generator() -> AsyncGenerator[bytes, None]:
+        # 1. 立即推送开始事件，降低首字节延迟
+        started_event = {"event": "started", "timestamp": datetime.now().isoformat()}
+        yield f"data: {json.dumps(started_event, ensure_ascii=False)}\n\n".encode("utf-8")
+
+        try:
+            logger.info(f"🎮 [SSE] 收到游戏生成请求: {request.prompt}")
+            result = await game_service.generate_game(
+                prompt=request.prompt,
+                session_id=session_id,
+                context_messages=request.context,
+            )
+
+            response_payload = {
+                "success": True,
+                "data": result.model_dump() if hasattr(result, "model_dump") else result.__dict__,
+                "timestamp": datetime.now().isoformat(),
+            }
+            yield f"data: {json.dumps({'event': 'result', **response_payload}, ensure_ascii=False)}\n\n".encode(
+                "utf-8"
+            )
+        except Exception as e:
+            logger.error(f"❌ [SSE] 游戏生成失败: {str(e)}")
+            error_event = {
+                "event": "error",
+                "success": False,
+                "error": str(e),
+                "timestamp": datetime.now().isoformat(),
+            }
+            yield f"data: {json.dumps(error_event, ensure_ascii=False)}\n\n".encode("utf-8")
+
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 
 @router.post("/iterate", response_model=GameGenerationResponse)

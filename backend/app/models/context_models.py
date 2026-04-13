@@ -16,6 +16,7 @@ class ContextMetadata(BaseModel):
     agent_chain: List[str] = []
     version: str = "1.0"
     usage_stats: Optional[Dict[str, Dict[str, Any]]] = None  # 各Agent的token使用统计
+    plan: Optional[List[Dict[str, Any]]] = None  # PlanningAgent 生成的执行计划（ReAct / Plan-and-Execute）
 
     def add_usage_stats(self, agent_name: str, usage: Dict[str, Any]):
         """添加Agent的token使用统计"""

@@ -58,6 +58,54 @@ async def generate_new_game(request: NewGameRequest):
         raise HTTPException(status_code=500, detail="创建新游戏失败")
 
 
+@router.post("/api/game/new/async")
+async def generate_new_game_async(request: NewGameRequest):
+    """1.b 异步创建新游戏对话 - 返回 task_id，用于轮询任务状态"""
+    try:
+        from ..services.task_queue import get_task_queue
+
+        task_queue = get_task_queue()
+
+        # 生成会话ID，后续 worker 会使用该 ID 保存对话
+        conversation_id = str(uuid.uuid4())
+
+        # 发布任务到 RabbitMQ
+        payload = {
+            "user_prompt": request.user_prompt,
+            "model": getattr(request, "model", None),
+            "conversation_id": conversation_id,
+        }
+        task_id = await task_queue.publish_game_task(payload)
+
+        # 记录任务状态
+        await history_service.create_task_status(
+            task_id=task_id,
+            user_prompt=request.user_prompt,
+            model=getattr(request, "model", None),
+        )
+
+        return {
+            "task_id": task_id,
+            "conversation_id": conversation_id,
+            "status": "pending",
+        }
+
+    except Exception as e:
+        logger.error(f"创建异步游戏任务失败: {str(e)}")
+        raise HTTPException(status_code=500, detail="创建异步游戏任务失败")
+
+
+@router.get("/api/game/task/{task_id}")
+async def get_game_task_status(task_id: str):
+    """查询异步游戏生成任务状态"""
+    task = await history_service.get_task_status(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    # 直接返回 Mongo 文档（去掉内部 _id）
+    task.pop("_id", None)
+    return task
+
+
 @router.post("/api/game/history-based", response_model=GameGenerationResponse)
 async def generate_history_based_game(request: HistoryBasedGameRequest):
     """2. 基于历史对话生成游戏 - 需要conversation_id和parent_message_id"""

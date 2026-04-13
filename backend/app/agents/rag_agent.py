@@ -57,13 +57,50 @@ class RAGAgent(BaseAgent):
         logger.info(f"🔍 RAG Agent 检索: {query[:100]}...")
 
         try:
-            # 执行检索
+            # 方式一：直接使用向量数据库检索（本地 RAG）
             results = self.rag_service.retrieve(
                 query=query,
                 n_results=n_results
             )
 
-            # 格式化上下文
+            # 方式二：示例性 function calling - 让大模型通过工具调用触发 RAG 检索
+            # 这里主要演示工具定义与调用流程，实际结果仍以本地 RAG 为准
+            tools = [
+                {
+                    "type": "function",
+                    "function": {
+                        "name": "search_api_docs",
+                        "description": "在游戏开发 API 文档知识库中检索相关内容",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string", "description": "检索关键词"},
+                                "n_results": {
+                                    "type": "integer",
+                                    "description": "返回的文档数量",
+                                    "default": 3
+                                },
+                            },
+                            "required": ["query"],
+                        },
+                    },
+                }
+            ]
+
+            try:
+                # 向大模型暴露工具，但不强制必须调用，仅作为演示
+                tool_result = await self.ai_client.chat_completion(
+                    system_message=self.system_message,
+                    user_message=f"请为以下查询选择是否调用 search_api_docs 工具，并给出简单说明：{query}",
+                    agent_name=self.agent_name,
+                    use_streaming=False,
+                    tools=tools,
+                )
+                logger.debug(f"RAG function-calling 响应: {tool_result.get('tool_calls')}")
+            except Exception as e:
+                logger.warning(f"RAG function-calling 调用失败，继续使用本地检索: {e}")
+
+            # 最终仍以本地 RAG 结果为准
             context_text = self._format_context(results)
 
             return {

@@ -31,6 +31,10 @@ class Settings(BaseSettings):
     # MongoDB配置
     mongo_url: str = "mongodb://localhost:27017"
     mongo_db_name: str = "game_generation"
+
+    # RabbitMQ 配置（用于任务异步化）
+    rabbitmq_url: str = "amqp://guest:guest@localhost/"
+    rabbitmq_queue_name: str = "game_generation_tasks"
     
     model_config = {
         "env_file": str(BASE_DIR / ".env"),

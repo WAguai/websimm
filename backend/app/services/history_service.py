@@ -23,6 +23,7 @@ class HistoryService:
         self.client: AsyncIOMotorClient = None
         self.db: AsyncIOMotorDatabase = None
         self.conversations_collection = None
+        self.tasks_collection = None
 
     async def connect(self):
         """连接MongoDB"""
@@ -34,6 +35,7 @@ class HistoryService:
             self.client = AsyncIOMotorClient(mongo_url)
             self.db = self.client[db_name]
             self.conversations_collection = self.db.conversation_history
+            self.tasks_collection = self.db.task_status
 
             # 测试连接
             await self.client.admin.command('ping')
@@ -85,6 +87,11 @@ class HistoryService:
 
             # 创建更新时间索引
             await self.conversations_collection.create_index([("updated_at", -1)])
+
+            # 任务状态索引
+            if self.tasks_collection is not None:
+                await self.tasks_collection.create_index([("task_id", 1)], unique=True)
+                await self.tasks_collection.create_index([("created_at", -1)])
 
             logger.info("✅ 数据库索引创建完成")
         except Exception as e:
@@ -489,6 +496,82 @@ class HistoryService:
         except Exception as e:
             logger.error(f"❌ 获取游戏历史失败: {str(e)}")
             return []
+
+    # ===== 任务状态管理（用于异步队列） =====
+
+    async def create_task_status(
+        self,
+        task_id: str,
+        user_prompt: str,
+        model: Optional[str] = None,
+    ) -> None:
+        """创建任务状态记录"""
+        if not self.tasks_collection:
+            return
+
+        try:
+            doc = {
+                "task_id": task_id,
+                "status": "pending",  # pending / running / success / failed
+                "user_prompt": user_prompt,
+                "model": model,
+                "conversation_id": None,
+                "message_id": None,
+                "error": None,
+                "created_at": datetime.utcnow(),
+                "updated_at": datetime.utcnow(),
+            }
+            await self.tasks_collection.insert_one(doc)
+        except Exception as e:
+            logger.error(f"❌ 创建任务状态失败: {e}")
+
+    async def update_task_status(
+        self,
+        task_id: str,
+        status: str,
+        *,
+        conversation_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        """更新任务状态"""
+        if not self.tasks_collection:
+            return
+
+        try:
+            update: Dict[str, Any] = {
+                "status": status,
+                "updated_at": datetime.utcnow(),
+            }
+            if conversation_id is not None:
+                update["conversation_id"] = conversation_id
+            if message_id is not None:
+                update["message_id"] = message_id
+            if error is not None:
+                update["error"] = error
+
+            await self.tasks_collection.update_one(
+                {"task_id": task_id},
+                {"$set": update},
+                upsert=True,
+            )
+        except Exception as e:
+            logger.error(f"❌ 更新任务状态失败: {e}")
+
+    async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """获取任务状态"""
+        if not self.tasks_collection:
+            return None
+
+        try:
+            doc = await self.tasks_collection.find_one({"task_id": task_id})
+            if not doc:
+                return None
+            doc["_id"] = str(doc["_id"])
+            return doc
+        except Exception as e:
+            logger.error(f"❌ 获取任务状态失败: {e}")
+            return None
 
     async def close(self):
         """关闭数据库连接"""

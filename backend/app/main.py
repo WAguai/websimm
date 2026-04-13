@@ -4,6 +4,7 @@ from .routers import game_routes, history_routes, rag_routes
 from .services.history_service import history_service
 from .config import settings
 import logging
+import asyncio
 
 # 配置日志
 logging.basicConfig(
@@ -92,6 +93,49 @@ async def startup_event():
 
     except Exception as e:
         logger.warning(f"⚠️  RAG知识库初始化失败，RAG功能将不可用: {str(e)}")
+
+    # 启动 RabbitMQ 任务消费者（用于异步游戏生成）
+    # 先尝试连接，连接失败则不启动消费者，避免后台任务报错
+    try:
+        from .services.task_queue import get_task_queue
+        from .services.game_service import game_service
+
+        task_queue = get_task_queue()
+        await task_queue.connect()
+    except Exception as e:
+        logger.warning(
+            f"⚠️  RabbitMQ 不可用，异步任务功能将关闭。"
+            f" 请启动 RabbitMQ（如: brew services start rabbitmq）或忽略此警告使用同步接口。错误: {e}"
+        )
+    else:
+        async def handle_game_task(payload):
+            from .services.history_service import history_service as hs  # 避免循环引用
+
+            task_id = payload.get("task_id")
+            user_prompt = payload.get("user_prompt", "")
+            model = payload.get("model")
+            session_id = payload.get("conversation_id")
+
+            await hs.update_task_status(task_id, "running")
+            try:
+                result = await game_service.generate_game(
+                    prompt=user_prompt,
+                    session_id=session_id,
+                    save_to_history=True,
+                    model=model,
+                )
+                await hs.update_task_status(
+                    task_id,
+                    "success",
+                    conversation_id=result.session_id,
+                    message_id=getattr(result, "record_id", None),
+                )
+            except Exception as e:
+                logger.error(f"❌ 异步游戏生成任务失败: {e}")
+                await hs.update_task_status(task_id, "failed", error=str(e))
+
+        asyncio.create_task(task_queue.consume_game_tasks(handle_game_task))
+        logger.info("✅ RabbitMQ 任务消费者已启动")
 
     logger.info("🚀 Game Generation Backend 启动成功!")
     logger.info(f"📍 服务地址: http://{settings.host}:{settings.port}")

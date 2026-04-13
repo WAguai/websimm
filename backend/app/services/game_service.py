@@ -6,6 +6,7 @@ from ..agents.file_generate_agent import FileGenerateAgent
 from ..agents.image_resource_agent import ImageResourceAgent
 from ..agents.audio_resource_agent import AudioResourceAgent
 from ..agents.rag_agent import RAGAgent
+from ..agents.planning_agent import PlanningAgent
 from ..services.history_service import history_service
 from ..services.rag_service import get_rag_service
 
@@ -26,6 +27,7 @@ class GameService:
         Args:
             enable_rag: 是否启用RAG增强（默认True）
         """
+        self.planning_agent = PlanningAgent()
         self.game_logic_agent = GameLogicAgent()
         self.file_generate_agent = FileGenerateAgent()
         self.image_resource_agent = ImageResourceAgent()
@@ -76,6 +78,14 @@ class GameService:
                 model=model,
                 metadata=ContextMetadata()
             )
+
+            # -1. 🧠 PlanningAgent 规划执行链（ReAct / Plan-and-Execute）
+            logger.info("=" * 50)
+            logger.info("🧠 PlanningAgent - 规划执行链")
+            try:
+                context = await self.planning_agent.process(context, session_id)
+            except Exception as e:
+                logger.warning(f"⚠️ PlanningAgent 规划失败，将使用默认执行链: {e}")
 
             # 0. 🔍 RAG检索增强（如果启用）
             enhanced_prompt = prompt
