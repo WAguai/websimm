@@ -6,9 +6,10 @@ from ..agents.file_generate_agent import FileGenerateAgent
 from ..agents.image_resource_agent import ImageResourceAgent
 from ..agents.audio_resource_agent import AudioResourceAgent
 from ..agents.rag_agent import RAGAgent
-from ..agents.planning_agent import PlanningAgent
+from ..agents.orchestrator_agent import OrchestratorAgent
+from ..agents.review_agent import ReviewAgent
 from ..services.history_service import history_service
-from ..services.rag_service import get_rag_service
+from ..services.dag_execution_engine import DAGExecutionEngine
 
 import logging
 from typing import List, Dict, Optional
@@ -27,23 +28,37 @@ class GameService:
         Args:
             enable_rag: 是否启用RAG增强（默认True）
         """
-        self.planning_agent = PlanningAgent()
+        self.orchestrator_agent = OrchestratorAgent(enable_rag=enable_rag)
         self.game_logic_agent = GameLogicAgent()
-        self.file_generate_agent = FileGenerateAgent()
-        self.image_resource_agent = ImageResourceAgent()
-        self.audio_resource_agent = AudioResourceAgent()
+        self.game_code_agent = FileGenerateAgent()
+        self.asset_agent = ImageResourceAgent()
+        self.audio_agent = AudioResourceAgent()
+        # 在保持实现复用的前提下，统一为新架构命名
+        self.game_code_agent.agent_name = "GameCodeAgent"
+        self.asset_agent.agent_name = "AssetAgent"
+        self.audio_agent.agent_name = "AudioAgent"
+        self.review_agent = ReviewAgent()
 
         # RAG支持
         self.enable_rag = enable_rag
         self.rag_agent = None
         if enable_rag:
             try:
-                from ..services.ai_client import ai_client
-                self.rag_agent = RAGAgent(ai_client)
+                self.rag_agent = RAGAgent()
                 logger.info("✅ RAG Agent已初始化")
             except Exception as e:
                 logger.warning(f"⚠️  RAG Agent初始化失败，将不使用RAG: {str(e)}")
                 self.enable_rag = False
+
+        self.execution_engine = DAGExecutionEngine(
+            orchestrator=self.orchestrator_agent,
+            game_logic_agent=self.game_logic_agent,
+            game_code_agent=self.game_code_agent,
+            asset_agent=self.asset_agent,
+            audio_agent=self.audio_agent,
+            review_agent=self.review_agent,
+            rag_agent=self.rag_agent,
+        )
     
     async def generate_game(
         self,
@@ -64,193 +79,107 @@ class GameService:
         Returns:
             GameGenerationResult: 完整的游戏生成结果
         """
-        logger.info(f"🚀 开始多代理游戏生成流程...")
+        logger.info("🚀 开始多代理游戏生成流程...")
         logger.info(f"📝 用户需求: {prompt}")
-        
+
         try:
-            # 生成会话ID（如果未提供）
             if not session_id:
                 session_id = str(uuid.uuid4())
-            
-            # 初始化上下文
+
             context = GameContext(
                 user_prompt=prompt,
                 model=model,
-                metadata=ContextMetadata()
+                request={"user_prompt": prompt, "model": model},
+                metadata=ContextMetadata(),
+            )
+            context.write_artifact(
+                name="original_user_prompt",
+                producer="OrchestratorAgent",
+                content=prompt,
+                status="final",
             )
 
-            # -1. 🧠 PlanningAgent 规划执行链（ReAct / Plan-and-Execute）
-            logger.info("=" * 50)
-            logger.info("🧠 PlanningAgent - 规划执行链")
-            try:
-                context = await self.planning_agent.process(context, session_id)
-            except Exception as e:
-                logger.warning(f"⚠️ PlanningAgent 规划失败，将使用默认执行链: {e}")
+            plan = await self.orchestrator_agent.plan(context, session_id=session_id)
+            context.plan = plan
+            context = await self.execution_engine.execute(context, plan, session_id=session_id)
 
-            # 0. 🔍 RAG检索增强（如果启用）
-            enhanced_prompt = prompt
-            if self.enable_rag and self.rag_agent:
-                logger.info("=" * 50)
-                logger.info("🔍 RAG Agent - 检索相关API文档")
-                try:
-                    # 检索相关文档
-                    rag_result = await self.rag_agent.retrieve_for_prompt(
-                        query=prompt,
-                        n_results=3
-                    )
+            if not context.game_logic or not context.files:
+                raise ValueError("执行完成但缺少关键产物（logic或html）")
 
-                    if rag_result:
-                        # 增强提示词
-                        enhanced_prompt = f"""{prompt}
+            review_report = context.metadata.review_report if context.metadata else None
+            validation_passed = bool(review_report and review_report.get("status") == "pass")
 
-{rag_result}
-
-请参考以上API文档和资料来设计游戏。确保使用正确的API和最佳实践。
-"""
-                        # 保存RAG检索结果到上下文（用于MongoDB存储）
-                        context.rag_enhanced_prompt = rag_result
-                        context.metadata.agent_chain.append("RAGAgent")
-                        logger.info(f"✅ RAG增强完成，检索到相关文档")
-                    else:
-                        logger.info("ℹ️  未检索到相关文档，使用原始提示词")
-                except Exception as e:
-                    logger.warning(f"⚠️  RAG检索失败: {str(e)}，使用原始提示词")
-
-            # 更新上下文中的用户提示词
-            context.user_prompt = enhanced_prompt
-
-            # 1. 🎮 游戏逻辑 Agent 处理
-            logger.info("=" * 50)
-            context = await self.game_logic_agent.process(context, session_id)
-
-            # 2. 📄 文件生成 Agent 处理
-            logger.info("=" * 50)
-            context = await self.file_generate_agent.process(context, session_id)
-
-            # 3. 🎨 图像资源 Agent 处理
-            logger.info("=" * 50)
-            context = await self.image_resource_agent.process(context, session_id)
-
-            # 4. 🔊 音效资源 Agent 处理
-            logger.info("=" * 50)
-            context = await self.audio_resource_agent.process(context, session_id)
-            
-            # 构建最终结果
             result = GameGenerationResult(
                 files=context.files,
                 title=context.game_logic.title,
                 description=context.game_logic.description,
                 game_type=context.game_logic.game_type,
                 game_logic=context.game_logic.game_logic,
-                image_resources=context.image_resources,
-                audio_resources=context.audio_resources
+                image_resources=context.image_resources or [],
+                audio_resources=context.audio_resources or [],
+                validation_passed=validation_passed,
+                review_report=review_report,
             )
-            
-            # 保存历史记录
+
             if save_to_history:
                 try:
-                    # 构建完整的结构化数据字典（用于存储到MongoDB）
                     structured_game_logic = None
-                    if hasattr(context.game_logic, '__dict__'):
-                        # 将完整的 GameLogicResult 对象转换为字典
+                    if hasattr(context.game_logic, "__dict__"):
                         structured_game_logic = {
-                            key: value for key, value in context.game_logic.__dict__.items()
-                            if key not in ['title', 'description', 'game_logic', 'game_type']  # 排除基础字段避免重复
+                            key: value
+                            for key, value in context.game_logic.__dict__.items()
+                            if key not in ["title", "description", "game_logic", "game_type"]
                         }
 
-                    # 获取增强提示词（如果有的话）
-                    enhanced_prompt = None
-                    if hasattr(context, 'enhanced_prompt'):
-                        enhanced_prompt = context.enhanced_prompt
+                    enhanced_prompt = context.enhanced_prompt if hasattr(context, "enhanced_prompt") else None
+                    rag_enhanced_prompt = context.rag_enhanced_prompt if hasattr(context, "rag_enhanced_prompt") else None
+                    dev_guidance = getattr(context.game_logic, "dev_guidance", None)
 
-                    # 获取RAG增强提示词
-                    rag_enhanced_prompt = None
-                    if hasattr(context, 'rag_enhanced_prompt'):
-                        rag_enhanced_prompt = context.rag_enhanced_prompt
-                        logger.info(f"✅ 从context获取到rag_enhanced_prompt，长度: {len(rag_enhanced_prompt) if rag_enhanced_prompt else 0}")
-                    # 如果在第一步RAG检索中保存了rag_result，也保存
-                    elif hasattr(context, 'enhanced_prompt') and '=== 相关API文档和参考资料 ===' in str(context.enhanced_prompt):
-                        # 提取RAG部分
-                        rag_part_start = str(context.enhanced_prompt).find('=== 相关API文档和参考资料 ===')
-                        if rag_part_start > 0:
-                            rag_enhanced_prompt = str(context.enhanced_prompt)[rag_part_start:]
-                            logger.info(f"✅ 从enhanced_prompt中提取到rag_enhanced_prompt，长度: {len(rag_enhanced_prompt)}")
-                    else:
-                        logger.warning("⚠️  未找到rag_enhanced_prompt")
-
-                    # 获取开发指导意见
-                    dev_guidance = getattr(context.game_logic, 'dev_guidance', None)
-                    if dev_guidance:
-                        logger.info(f"✅ 获取到dev_guidance，长度: {len(dev_guidance)}")
-                        logger.info(f"📝 dev_guidance内容预览: {dev_guidance[:200]}...")
-                    else:
-                        logger.warning("⚠️  未找到dev_guidance")
-
-                    # 创建游戏数据对象（包含新的结构化数据）
                     game_data = GameData(
-                        # 基础字段（向后兼容）
                         title=context.game_logic.title,
                         game_type=context.game_logic.game_type,
                         game_logic=context.game_logic.game_logic,
                         description=context.game_logic.description,
                         html_content=context.files.html,
-                        image_resources=context.image_resources,
-                        audio_resources=context.audio_resources,
-                        agent_chain=context.metadata.agent_chain,
-
-                        # 新的结构化数据字段
+                        image_resources=context.image_resources or [],
+                        audio_resources=context.audio_resources or [],
+                        agent_chain=context.metadata.agent_chain if context.metadata else [],
                         structured_game_logic=structured_game_logic,
-                        target_audience=getattr(context.game_logic, 'target_audience', None),
-                        difficulty=getattr(context.game_logic, 'difficulty', None),
-                        core_mechanics=getattr(context.game_logic, 'core_mechanics', None),
-                        notes_for_dev=getattr(context.game_logic, 'notes_for_dev', None),
-                        examples=getattr(context.game_logic, 'examples', None),
+                        target_audience=getattr(context.game_logic, "target_audience", None),
+                        difficulty=getattr(context.game_logic, "difficulty", None),
+                        core_mechanics=getattr(context.game_logic, "core_mechanics", None),
+                        notes_for_dev=getattr(context.game_logic, "notes_for_dev", None),
+                        examples=getattr(context.game_logic, "examples", None),
                         enhanced_prompt=enhanced_prompt,
-                        usage_stats=context.metadata.usage_stats if hasattr(context.metadata, 'usage_stats') else None,
-
-                        # RAG相关字段
+                        usage_stats=context.metadata.usage_stats if context.metadata else None,
                         rag_enhanced_prompt=rag_enhanced_prompt,
-                        dev_guidance=dev_guidance
+                        dev_guidance=dev_guidance,
                     )
 
-                    # 验证GameData对象中是否包含RAG字段
-                    logger.info("=" * 50)
-                    logger.info("📦 GameData对象已创建，验证RAG字段:")
-                    logger.info(f"  - rag_enhanced_prompt: {'✅ 存在' if game_data.rag_enhanced_prompt else '❌ 为空'}")
-                    logger.info(f"  - dev_guidance: {'✅ 存在' if game_data.dev_guidance else '❌ 为空'}")
-                    if game_data.rag_enhanced_prompt:
-                        logger.info(f"  - rag_enhanced_prompt长度: {len(game_data.rag_enhanced_prompt)}")
-                    if game_data.dev_guidance:
-                        logger.info(f"  - dev_guidance长度: {len(game_data.dev_guidance)}")
-                    logger.info("=" * 50)
-
-                    # 生成助手回复内容
-                    assistant_response = f"游戏已生成完成！\n\n游戏标题：{context.game_logic.title}\n游戏类型：{context.game_logic.game_type}\n\n{context.game_logic.description}"
-
-                    # 保存游戏消息（使用新的方法）
                     conversation_id, message_id = await history_service.create_new_game_message(
                         conversation_id=session_id,
                         user_prompt=prompt,
                         game_data=game_data,
-                        usage=None
+                        usage=None,
                     )
 
-                    logger.info(f"💾 游戏消息已保存: conversation_id={conversation_id}, message_id={message_id}")
+                    logger.info(
+                        f"💾 游戏消息已保存: conversation_id={conversation_id}, message_id={message_id}"
+                    )
                     result.session_id = session_id
                 except Exception as e:
                     logger.warning(f"⚠️  保存游戏对话失败: {str(e)}")
-            
+
             logger.info("=" * 50)
-            logger.info(f"🎉 游戏生成完成!")
-            logger.info(f"📊 执行链: {' -> '.join(context.metadata.agent_chain)}")
+            logger.info("🎉 游戏生成完成!")
+            logger.info(f"📊 执行链: {' -> '.join(context.metadata.agent_chain if context.metadata else [])}")
             logger.info(f"🎮 游戏标题: {context.game_logic.title}")
             logger.info(f"🎯 游戏类型: {context.game_logic.game_type}")
+            logger.info(f"✅ Review通过: {validation_passed}")
             logger.info(f"📁 HTML文件大小: {len(context.files.html)} 字符")
-            logger.info(f"🎨 图像资源: {len(context.image_resources)} 个")
-            logger.info(f"🔊 音频资源: {len(context.audio_resources)} 个")
-            
+            logger.info(f"🎨 图像资源: {len(context.image_resources or [])} 个")
+            logger.info(f"🔊 音频资源: {len(context.audio_resources or [])} 个")
             return result
-            
         except Exception as e:
             logger.error(f"❌ 多代理游戏生成失败: {str(e)}")
             raise Exception(f"游戏生成过程中出现错误: {str(e)}")
@@ -317,7 +246,7 @@ class GameService:
                     html_content=result.files.html if result.files else "",
                     image_resources=result.image_resources,
                     audio_resources=result.audio_resources,
-                    agent_chain=["GameLogicAgent", "FileGenerateAgent", "ImageResourceAgent", "AudioResourceAgent"]
+                    agent_chain=["OrchestratorAgent", "GameLogicAgent", "GameCodeAgent", "AssetAgent", "AudioAgent", "ReviewAgent"]
                 )
 
                 # 生成迭代助手回复

@@ -113,6 +113,8 @@ class GameGenerationResult(BaseModel):
     audio_resources: List[str]
     session_id: Optional[str] = None
     record_id: Optional[str] = None
+    validation_passed: bool = False
+    review_report: Optional[Dict[str, Any]] = None
 
 
 # API请求模型

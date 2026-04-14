@@ -13,15 +13,14 @@ logger = logging.getLogger(__name__)
 class RAGAgent(BaseAgent):
     """RAG Agent - 提供检索增强生成能力"""
 
-    def __init__(self, ai_client, collection_name: str = "game_api_docs"):
+    def __init__(self, collection_name: str = "game_api_docs"):
         """
         初始化RAG Agent
 
         Args:
-            ai_client: AI客户端
             collection_name: 使用的向量数据库集合名称
         """
-        super().__init__(ai_client)
+        super().__init__("RAGAgent")
         self.collection_name = collection_name
         self.rag_service = get_rag_service(collection_name=collection_name)
 
@@ -208,98 +207,3 @@ class RAGAgent(BaseAgent):
     def get_knowledge_base_stats(self) -> Dict[str, Any]:
         """获取知识库统计信息"""
         return self.rag_service.get_collection_stats()
-
-
-class RAGEnhancedMixin:
-    """RAG增强混入类 - 为现有Agent添加RAG能力"""
-
-    def __init__(self, *args, enable_rag: bool = True, **kwargs):
-        """
-        初始化RAG增强混入
-
-        Args:
-            enable_rag: 是否启用RAG
-        """
-        super().__init__(*args, **kwargs)
-        self.enable_rag = enable_rag
-        self._rag_service = None
-
-        if enable_rag:
-            try:
-                self._rag_service = get_rag_service()
-                logger.info(f"✅ {self.__class__.__name__} 启用RAG增强")
-            except Exception as e:
-                logger.warning(f"⚠️  RAG服务初始化失败，将不使用RAG: {str(e)}")
-                self.enable_rag = False
-
-    async def enhance_prompt_with_rag(
-        self,
-        base_prompt: str,
-        query: Optional[str] = None,
-        n_results: int = 3
-    ) -> str:
-        """
-        使用RAG增强提示词
-
-        Args:
-            base_prompt: 基础提示词
-            query: 检索查询（如果为None，使用base_prompt）
-            n_results: 检索结果数量
-
-        Returns:
-            增强后的提示词
-        """
-        if not self.enable_rag or not self._rag_service:
-            return base_prompt
-
-        try:
-            # 使用base_prompt作为查询
-            search_query = query or base_prompt
-
-            # 检索相关上下文
-            context = self._rag_service.retrieve_for_context(
-                query=search_query,
-                n_results=n_results
-            )
-
-            if context:
-                # 将上下文添加到提示词中
-                enhanced_prompt = f"""{base_prompt}
-
-{context}
-
-请参考以上API文档和资料来完成任务。确保使用正确的API和最佳实践。
-"""
-                logger.info(f"✅ 提示词已通过RAG增强（检索到 {n_results} 个相关文档）")
-                return enhanced_prompt
-            else:
-                logger.debug("未检索到相关文档，使用原始提示词")
-                return base_prompt
-
-        except Exception as e:
-            logger.warning(f"⚠️  RAG增强失败，使用原始提示词: {str(e)}")
-            return base_prompt
-
-
-def create_rag_enhanced_agent(agent_class):
-    """
-    工厂函数：创建支持RAG的Agent类
-
-    Args:
-        agent_class: 原始Agent类
-
-    Returns:
-        支持RAG的新Agent类
-
-    示例:
-        RAGGameLogicAgent = create_rag_enhanced_agent(GameLogicAgent)
-        agent = RAGGameLogicAgent(ai_client, enable_rag=True)
-    """
-    class RAGEnhancedAgent(RAGEnhancedMixin, agent_class):
-        """RAG增强的Agent"""
-        pass
-
-    RAGEnhancedAgent.__name__ = f"RAG{agent_class.__name__}"
-    RAGEnhancedAgent.__doc__ = f"RAG增强版本的{agent_class.__name__}"
-
-    return RAGEnhancedAgent
